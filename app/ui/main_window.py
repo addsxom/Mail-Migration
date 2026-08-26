@@ -66,6 +66,10 @@ class MainWindow(QMainWindow):
         self.accounts = AccountsPage(self.set_active_account)
         self.services = ServicesPage()
 
+        self.accounts.scan_started.connect(self.services.start_live_scan)
+        self.accounts.scan_detection.connect(self.services.update_live_detection)
+        self.accounts.scan_finished_live.connect(self.services.finish_live_scan)
+
         self.stack.addWidget(self.dashboard)
         self.stack.addWidget(self.accounts)
         self.stack.addWidget(self.services)
