@@ -1,0 +1,58 @@
+CATALOG = [
+    {
+        "name": "Epic Games",
+        "category": "Jeux",
+        "domains": ["epicgames.com"],
+        "senders": ["noreply@epicgames.com"],
+        "keywords": ["Epic Games", "Epic Account"],
+    },
+    {
+        "name": "Ubisoft",
+        "category": "Jeux",
+        "domains": ["ubisoft.com"],
+        "senders": ["no-reply@ubisoft.com", "noreply@ubisoft.com"],
+        "keywords": ["Ubisoft", "Ubisoft Connect"],
+    },
+    {
+        "name": "Discord",
+        "category": "Réseaux sociaux",
+        "domains": ["discord.com", "discordapp.com"],
+        "senders": ["noreply@discord.com"],
+        "keywords": ["Discord"],
+    },
+    {
+        "name": "Netflix",
+        "category": "Streaming",
+        "domains": ["netflix.com"],
+        "senders": ["info@account.netflix.com"],
+        "keywords": ["Netflix"],
+    },
+    {
+        "name": "Spotify",
+        "category": "Streaming",
+        "domains": ["spotify.com"],
+        "senders": ["no-reply@spotify.com"],
+        "keywords": ["Spotify"],
+    },
+    {
+        "name": "PlayStation",
+        "category": "Jeux",
+        "domains": ["playstation.com"],
+        "senders": ["sony@txn-email.playstation.com"],
+        "keywords": ["PlayStation", "PlayStation Network"],
+    },
+    {
+        "name": "Microsoft",
+        "category": "Technologie",
+        "domains": ["microsoft.com", "accountprotection.microsoft.com"],
+        "senders": [],
+        "keywords": ["Microsoft account", "Microsoft"],
+    },
+    {
+        "name": "Amazon",
+        "category": "Shopping",
+        "domains": ["amazon.com", "amazon.fr", "amazon.de", "amazon.ch"],
+        "senders": [],
+        "keywords": ["Amazon"],
+    },
+]
