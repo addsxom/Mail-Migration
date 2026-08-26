@@ -1,23 +1,18 @@
-from PySide6.QtCore import QObject, Signal, QThread
+from PySide6.QtCore import QObject, Signal, QThread, Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QMessageBox, QInputDialog
+    QListWidget, QListWidgetItem, QMessageBox, QInputDialog, QProgressBar,
 )
-from PySide6.QtCore import Qt
 
 from app.database.database import get_session
 from app.database.models import GoogleAccount
 from app.database.repositories import get_accounts, delete_account, update_account
-from app.google.oauth import (
-    authorize,
-    credential_state,
-    revoke_token,
-)
+from app.google.oauth import authorize, credential_state, revoke_token
 from app.scanner.scanner import scan_account, ScanCancelled
 
 
 class ScanWorker(QObject):
-    progress = Signal(int, int)
+    progress = Signal(int, int, int)
     finished = Signal(int, int)
     error = Signal(str)
     cancelled = Signal()
@@ -36,7 +31,9 @@ class ScanWorker(QObject):
             result = scan_account(
                 session,
                 self.account_id,
-                progress=lambda messages, services: self.progress.emit(messages, services),
+                progress=lambda messages, total, services: self.progress.emit(
+                    messages, total, services
+                ),
                 cancel_check=lambda: self._cancel,
             )
             self.finished.emit(*result)
@@ -83,6 +80,13 @@ class AccountsPage(QWidget):
             actions.addWidget(widget)
         actions.addStretch()
         layout.addLayout(actions)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
+        self.progress.setFormat("En attente")
+        layout.addWidget(self.progress)
 
         self.status = QLabel("Aucun scan en cours.")
         layout.addWidget(self.status)
@@ -152,22 +156,20 @@ class AccountsPage(QWidget):
             try:
                 existing = session.query(GoogleAccount).filter_by(email=email).first()
                 if not existing:
-                    session.add(
-                        GoogleAccount(
-                            email=email,
-                            display_name=email,
-                            token_reference=token_name,
-                            active=True,
-                        )
+                    account = GoogleAccount(
+                        email=email,
+                        display_name=email,
+                        token_reference=token_name,
+                        active=True,
                     )
+                    session.add(account)
+                    session.flush()
+                    account_id = account.id
                 else:
                     existing.active = True
                     existing.token_reference = token_name
+                    account_id = existing.id
                 session.commit()
-                account_id = existing.id if existing else None
-                if account_id is None:
-                    account = session.query(GoogleAccount).filter_by(email=email).first()
-                    account_id = account.id if account else None
             finally:
                 session.close()
 
@@ -190,8 +192,15 @@ class AccountsPage(QWidget):
         finally:
             session.close()
 
-        name, ok = QInputDialog.getText(self, "Nom du compte", "Nom personnalisé :", text=current)
+        name, ok = QInputDialog.getText(
+            self, "Nom du compte", "Nom personnalisé :", text=current
+        )
         if not ok:
+            return
+
+        name = name.strip()
+        if not name:
+            QMessageBox.information(self, "Nom du compte", "Le nom ne peut pas être vide.")
             return
 
         session = get_session()
@@ -288,47 +297,69 @@ class AccountsPage(QWidget):
 
         self.scan.setEnabled(False)
         self.cancel.setEnabled(True)
-        self.status.setText("Scan en cours...")
+        self.progress.setValue(0)
+        self.progress.setFormat("Préparation du scan...")
+        self.status.setText("Préparation du scan Gmail...")
 
         self.thread = QThread()
         self.worker = ScanWorker(account_id)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
-        self.worker.progress.connect(
-            lambda messages, services: self.status.setText(
-                f"Scan en cours... {messages} messages analysés — {services} services détectés"
-            )
-        )
+        self.worker.progress.connect(self.scan_progress)
         self.worker.finished.connect(self.scan_finished)
         self.worker.cancelled.connect(self.scan_cancelled)
         self.worker.error.connect(self.scan_error)
         self.thread.start()
 
+    def scan_progress(self, messages, total, services):
+        if total > 0:
+            percent = min(100, int(messages * 100 / total))
+            self.progress.setValue(percent)
+            self.progress.setFormat(f"{percent}%")
+            total_text = f"{messages:,} / ~{total:,} messages"
+        else:
+            self.progress.setValue(0)
+            self.progress.setFormat("En cours")
+            total_text = f"{messages:,} messages"
+
+        self.status.setText(
+            f"Scan en cours — {total_text} — {services} service(s) détecté(s)"
+        )
+
     def cancel_scan(self):
         if self.worker:
             self.worker.cancel()
-            self.status.setText("Annulation demandée...")
+            self.cancel.setEnabled(False)
+            self.status.setText("Annulation demandée — fin de la requête Gmail en cours...")
 
     def cleanup_thread(self):
-        if self.thread:
-            self.thread.quit()
-            self.thread.wait()
+        thread = self.thread
         self.thread = None
         self.worker = None
         self.scan.setEnabled(True)
         self.cancel.setEnabled(False)
         self.selection_changed()
         self.on_change(self.selected_id())
+        if thread:
+            thread.quit()
+            thread.wait()
 
     def scan_finished(self, messages, services):
-        self.status.setText(f"Terminé : {messages} messages — {services} services détectés.")
+        self.progress.setValue(100)
+        self.progress.setFormat("Terminé")
+        self.status.setText(
+            f"Scan terminé — {messages:,} messages — {services} service(s) détecté(s)."
+        )
+        self.refresh(self.selected_id())
         self.cleanup_thread()
 
     def scan_cancelled(self):
+        self.progress.setFormat("Annulé")
         self.status.setText("Scan annulé.")
         self.cleanup_thread()
 
     def scan_error(self, message):
+        self.progress.setFormat("Erreur")
         self.status.setText("Erreur pendant le scan.")
         self.cleanup_thread()
         QMessageBox.critical(self, "Erreur de scan", message)
