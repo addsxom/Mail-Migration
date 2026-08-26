@@ -13,6 +13,7 @@ from app.scanner.scanner import scan_account, ScanCancelled
 
 class ScanWorker(QObject):
     progress = Signal(int, int, int)
+    detection = Signal(int, object)
     finished = Signal(int, int)
     error = Signal(str)
     cancelled = Signal()
@@ -35,6 +36,7 @@ class ScanWorker(QObject):
                     messages, total, services
                 ),
                 cancel_check=lambda: self._cancel,
+                detection_callback=lambda data: self.detection.emit(self.account_id, data),
             )
             self.finished.emit(*result)
         except ScanCancelled:
@@ -46,6 +48,10 @@ class ScanWorker(QObject):
 
 
 class AccountsPage(QWidget):
+    scan_started = Signal(int)
+    scan_detection = Signal(int, object)
+    scan_finished_live = Signal(int)
+
     def __init__(self, on_change=None):
         super().__init__()
         self.on_change = on_change or (lambda *_: None)
@@ -182,7 +188,6 @@ class AccountsPage(QWidget):
         account_id = self.selected_id()
         if not account_id:
             return
-
         session = get_session()
         try:
             account = session.get(GoogleAccount, account_id)
@@ -191,18 +196,13 @@ class AccountsPage(QWidget):
             current = account.display_name or account.email
         finally:
             session.close()
-
-        name, ok = QInputDialog.getText(
-            self, "Nom du compte", "Nom personnalisé :", text=current
-        )
+        name, ok = QInputDialog.getText(self, "Nom du compte", "Nom personnalisé :", text=current)
         if not ok:
             return
-
         name = name.strip()
         if not name:
             QMessageBox.information(self, "Nom du compte", "Le nom ne peut pas être vide.")
             return
-
         session = get_session()
         try:
             update_account(session, account_id, display_name=name)
@@ -215,14 +215,12 @@ class AccountsPage(QWidget):
         account_id = self.selected_id()
         if not account_id:
             return
-
         try:
             email, token_name = authorize()
             session = get_session()
             try:
                 account = session.get(GoogleAccount, account_id)
                 existing = session.query(GoogleAccount).filter_by(email=email).first()
-
                 if account and account.email.lower() == email.lower():
                     account.token_reference = token_name
                     account.active = True
@@ -244,7 +242,6 @@ class AccountsPage(QWidget):
                 session.commit()
             finally:
                 session.close()
-
             self.refresh(target_id)
             self.on_change(target_id)
         except Exception as exc:
@@ -254,7 +251,6 @@ class AccountsPage(QWidget):
         account_id = self.selected_id()
         if not account_id:
             return
-
         session = get_session()
         try:
             account = session.get(GoogleAccount, account_id)
@@ -264,19 +260,15 @@ class AccountsPage(QWidget):
             label = account.display_name or email
         finally:
             session.close()
-
         answer = QMessageBox.question(
-            self,
-            "Supprimer le compte",
+            self, "Supprimer le compte",
             f"Supprimer « {label} » ({email}) ?\n\n"
             "Cela supprimera aussi ses services détectés, traces et historique local.\n"
             "L'autorisation Google locale sera également révoquée.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if answer != QMessageBox.Yes:
             return
-
         try:
             revoke_token(email)
             session = get_session()
@@ -294,18 +286,19 @@ class AccountsPage(QWidget):
         if not account_id:
             QMessageBox.information(self, "Scan", "Sélectionne d'abord un compte.")
             return
-
         self.scan.setEnabled(False)
         self.cancel.setEnabled(True)
         self.progress.setValue(0)
         self.progress.setFormat("Préparation du scan...")
         self.status.setText("Préparation du scan Gmail...")
+        self.scan_started.emit(account_id)
 
         self.thread = QThread()
         self.worker = ScanWorker(account_id)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.scan_progress)
+        self.worker.detection.connect(self.scan_detection.emit)
         self.worker.finished.connect(self.scan_finished)
         self.worker.cancelled.connect(self.scan_cancelled)
         self.worker.error.connect(self.scan_error)
@@ -321,10 +314,7 @@ class AccountsPage(QWidget):
             self.progress.setValue(0)
             self.progress.setFormat("En cours")
             total_text = f"{messages:,} messages"
-
-        self.status.setText(
-            f"Scan en cours — {total_text} — {services} service(s) détecté(s)"
-        )
+        self.status.setText(f"Scan en cours — {total_text} — {services} service(s) détecté(s)")
 
     def cancel_scan(self):
         if self.worker:
@@ -347,19 +337,20 @@ class AccountsPage(QWidget):
     def scan_finished(self, messages, services):
         self.progress.setValue(100)
         self.progress.setFormat("Terminé")
-        self.status.setText(
-            f"Scan terminé — {messages:,} messages — {services} service(s) détecté(s)."
-        )
+        self.status.setText(f"Scan terminé — {messages:,} messages — {services} service(s) détecté(s).")
         self.refresh(self.selected_id())
+        self.scan_finished_live.emit(self.selected_id() or 0)
         self.cleanup_thread()
 
     def scan_cancelled(self):
         self.progress.setFormat("Annulé")
         self.status.setText("Scan annulé.")
+        self.scan_finished_live.emit(self.selected_id() or 0)
         self.cleanup_thread()
 
     def scan_error(self, message):
         self.progress.setFormat("Erreur")
         self.status.setText("Erreur pendant le scan.")
+        self.scan_finished_live.emit(self.selected_id() or 0)
         self.cleanup_thread()
         QMessageBox.critical(self, "Erreur de scan", message)
