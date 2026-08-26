@@ -14,7 +14,6 @@ class ScanCancelled(Exception):
 
 
 # TEMPORAIRE POUR LES TESTS : chaque compte s'arrête après 30 services distincts.
-# À retirer une fois les tests multi-comptes validés.
 TEST_SERVICE_LIMIT = 30
 
 
@@ -27,37 +26,27 @@ def _persist_partial(session, account, detections):
         ))
         now = datetime.now(timezone.utc)
         if not link:
-            link = AccountService(
-                account_id=account.id,
-                service_id=service.id,
-                confidence_score=data["score"],
-                trace_count=0,
-                first_detected_at=now,
-                last_detected_at=now,
-                status="À vérifier",
-            )
+            link = AccountService(account_id=account.id, service_id=service.id,
+                                   confidence_score=data["score"], trace_count=0,
+                                   first_detected_at=now, last_detected_at=now,
+                                   status="À vérifier")
             session.add(link)
             session.flush()
         else:
             link.confidence_score = max(link.confidence_score, data["score"])
             link.last_detected_at = now
 
-        existing_ids = {
-            row.message_id
-            for row in session.scalars(select(ScanTrace).where(ScanTrace.account_service_id == link.id))
-        }
+        existing_ids = {row.message_id for row in session.scalars(
+            select(ScanTrace).where(ScanTrace.account_service_id == link.id)
+        )}
         signal = sorted(data["signals"])[0] if data["signals"] else "unknown"
         for message_id in data["message_ids"]:
             if message_id and message_id not in existing_ids:
-                session.add(ScanTrace(
-                    account_service_id=link.id,
-                    message_id=message_id,
-                    signal_type=signal,
-                    signal_value=", ".join(sorted(data["signals"])),
-                ))
+                session.add(ScanTrace(account_service_id=link.id, message_id=message_id,
+                                      signal_type=signal,
+                                      signal_value=", ".join(sorted(data["signals"]))))
                 existing_ids.add(message_id)
         link.trace_count = len(existing_ids)
-
     session.commit()
 
 
@@ -71,7 +60,6 @@ def scan_account(session, account_id, progress=None, cancel_check=None, query=""
     history = ScanHistory(account_id=account.id, status="running")
     session.add(history)
     session.commit()
-
     detections = {}
     messages_scanned = 0
     estimated_total = 0
@@ -93,10 +81,11 @@ def scan_account(session, account_id, progress=None, cancel_check=None, query=""
 
             for detection in results:
                 key = detection.service["name"]
+                if key not in detections and len(detections) >= TEST_SERVICE_LIMIT:
+                    service_limit_reached = True
+                    break
+
                 if key not in detections:
-                    if len(detections) >= TEST_SERVICE_LIMIT:
-                        service_limit_reached = True
-                        break
                     detections[key] = {
                         "definition": detection.service,
                         "score": detection.score,
