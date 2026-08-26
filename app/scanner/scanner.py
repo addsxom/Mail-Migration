@@ -13,6 +13,56 @@ class ScanCancelled(Exception):
     pass
 
 
+def _persist_partial(session, account, detections):
+    """Persist the current scan state so cancellation never loses completed work."""
+    for data in detections.values():
+        service = get_or_create_service(session, data["definition"])
+        link = session.scalar(
+            select(AccountService).where(
+                AccountService.account_id == account.id,
+                AccountService.service_id == service.id,
+            )
+        )
+        now = datetime.now(timezone.utc)
+        if not link:
+            link = AccountService(
+                account_id=account.id,
+                service_id=service.id,
+                confidence_score=data["score"],
+                trace_count=0,
+                first_detected_at=now,
+                last_detected_at=now,
+                status="À vérifier",
+            )
+            session.add(link)
+            session.flush()
+        else:
+            link.confidence_score = max(link.confidence_score, data["score"])
+            link.last_detected_at = now
+
+        existing_ids = {
+            row.message_id
+            for row in session.scalars(
+                select(ScanTrace).where(ScanTrace.account_service_id == link.id)
+            )
+        }
+        signal = sorted(data["signals"])[0] if data["signals"] else "unknown"
+        for message_id in data["message_ids"]:
+            if message_id and message_id not in existing_ids:
+                session.add(
+                    ScanTrace(
+                        account_service_id=link.id,
+                        message_id=message_id,
+                        signal_type=signal,
+                        signal_value=", ".join(sorted(data["signals"])),
+                    )
+                )
+                existing_ids.add(message_id)
+        link.trace_count = len(existing_ids)
+
+    session.commit()
+
+
 def scan_account(
     session,
     account_id,
@@ -34,6 +84,7 @@ def scan_account(
     detections = {}
     messages_scanned = 0
     estimated_total = 0
+    last_persist = 0
 
     try:
         estimated_total = get_message_count(account.email, query=query)
@@ -46,6 +97,7 @@ def scan_account(
             cancel_check=cancel_check,
         ):
             if cancel_check and cancel_check():
+                _persist_partial(session, account, detections)
                 raise ScanCancelled()
 
             messages_scanned += 1
@@ -73,7 +125,10 @@ def scan_account(
                 if detection_callback:
                     detection_callback(
                         {
+                            "account_id": account.id,
+                            "account_email": account.email,
                             "name": item["definition"]["name"],
+                            "service_id": item["definition"].get("name"),
                             "category": item["definition"].get("category", "Autre"),
                             "score": item["score"],
                             "count": item["count"],
@@ -81,50 +136,14 @@ def scan_account(
                         }
                     )
 
+            if messages_scanned - last_persist >= 50:
+                _persist_partial(session, account, detections)
+                last_persist = messages_scanned
+
             if progress:
                 progress(messages_scanned, estimated_total, len(detections))
 
-        for data in detections.values():
-            service = get_or_create_service(session, data["definition"])
-            link = session.scalar(
-                select(AccountService).where(
-                    AccountService.account_id == account.id,
-                    AccountService.service_id == service.id,
-                )
-            )
-
-            now = datetime.now(timezone.utc)
-            if not link:
-                link = AccountService(
-                    account_id=account.id,
-                    service_id=service.id,
-                    confidence_score=data["score"],
-                    trace_count=0,
-                    first_detected_at=now,
-                    last_detected_at=now,
-                    status="À vérifier",
-                )
-                session.add(link)
-                session.flush()
-            else:
-                link.confidence_score = max(link.confidence_score, data["score"])
-                link.last_detected_at = now
-
-            session.execute(
-                delete(ScanTrace).where(ScanTrace.account_service_id == link.id)
-            )
-            link.trace_count = len(data["message_ids"])
-
-            for message_id in data["message_ids"]:
-                signal = sorted(data["signals"])[0] if data["signals"] else "unknown"
-                session.add(
-                    ScanTrace(
-                        account_service_id=link.id,
-                        message_id=message_id,
-                        signal_type=signal,
-                        signal_value=", ".join(sorted(data["signals"])),
-                    )
-                )
+        _persist_partial(session, account, detections)
 
         account.last_scan_at = datetime.now(timezone.utc)
         history.finished_at = datetime.now(timezone.utc)
@@ -138,6 +157,7 @@ def scan_account(
         return messages_scanned, len(detections)
 
     except ScanCancelled:
+        # Partial scan data was already committed. Only mark the history as cancelled.
         session.rollback()
         history = session.get(ScanHistory, history.id)
         if history:
