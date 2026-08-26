@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.database.database import get_session
+from app.database.models import GoogleAccount
 from app.database.repositories import get_accounts, get_account_services
 
 
@@ -125,6 +126,7 @@ class ServicesPage(QWidget):
         self.live_scan = False
         self.live_rows = {}
         self.row_details = []
+        self.live_account_email = ""
 
         layout = QVBoxLayout(self)
         title = QLabel("Inventaire des services")
@@ -156,6 +158,7 @@ class ServicesPage(QWidget):
         self.active_account_id = account_id
         self.live_rows.clear()
         self.live_scan = False
+        self.live_account_email = ""
         self.scan_label.setText("")
         self.refresh()
 
@@ -163,17 +166,30 @@ class ServicesPage(QWidget):
         self.active_account_id = account_id
         self.live_scan = True
         self.live_rows.clear()
+        self.live_account_email = self._get_account_email(account_id)
         self.scan_label.setText("● Scan en cours — les services apparaissent en temps réel")
         self.refresh()
+
+    @staticmethod
+    def _get_account_email(account_id):
+        if account_id is None:
+            return ""
+        session = get_session()
+        try:
+            account = session.get(GoogleAccount, account_id)
+            return account.email if account else ""
+        finally:
+            session.close()
 
     def update_live_detection(self, account_id, data):
         if not self.live_scan or account_id != self.active_account_id:
             return
 
         key = data.get("service_id") or data.get("name", "").strip().lower()
+        account_email = data.get("account_email") or self.live_account_email
         self.live_rows[key] = {
             "account_id": account_id,
-            "account_email": data.get("account_email", ""),
+            "account_email": account_email,
             "name": data.get("name", "Service inconnu"),
             "category": data.get("category", "Autre"),
             "subcategory": data.get("subcategory"),
@@ -192,6 +208,7 @@ class ServicesPage(QWidget):
         if account_id != self.active_account_id:
             return
         self.live_scan = False
+        self.live_account_email = ""
         self.scan_label.setText("")
         self.refresh()
 
