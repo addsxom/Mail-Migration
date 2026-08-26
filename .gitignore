@@ -14,6 +14,12 @@ token.json
 # Database / local data
 data/*.db
 *.db
+data/*.log
+*.log
+
+# Local exports / backups
+data/*.json
+*.bak
 
 # IDE
 .vscode/
