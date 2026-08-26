@@ -1,18 +1,24 @@
 from datetime import datetime, timezone
-from sqlalchemy import select
+
+from sqlalchemy import delete, select
+
 from app.database.models import GoogleAccount, AccountService, ScanHistory, ScanTrace
 from app.database.repositories import get_or_create_service
-from app.google.gmail import iter_message_metadata
+from app.google.gmail import get_message_count, iter_message_metadata
 from app.services.builtin_catalog import CATALOG
 from .detector import detect_message
+
 
 class ScanCancelled(Exception):
     pass
 
-def scan_account(session, account_id, progress=None, cancel_check=None):
+
+def scan_account(session, account_id, progress=None, cancel_check=None, query=""):
     account = session.get(GoogleAccount, account_id)
     if not account:
         raise ValueError("Compte introuvable.")
+    if not account.active:
+        raise ValueError("Le compte est désactivé.")
 
     history = ScanHistory(account_id=account.id, status="running")
     session.add(history)
@@ -20,10 +26,16 @@ def scan_account(session, account_id, progress=None, cancel_check=None):
 
     detections = {}
     messages_scanned = 0
+    estimated_total = 0
 
     try:
+        estimated_total = get_message_count(account.email, query=query)
+        if progress:
+            progress(0, estimated_total, 0)
+
         for message in iter_message_metadata(
             account.email,
+            query=query,
             cancel_check=cancel_check,
         ):
             if cancel_check and cancel_check():
@@ -42,15 +54,20 @@ def scan_account(session, account_id, progress=None, cancel_check=None):
                         "count": 0,
                         "message_ids": [],
                     }
+
                 item = detections[key]
                 item["score"] = max(item["score"], detection.score)
                 item["signals"].update(detection.signals)
                 item["count"] += 1
-                item["message_ids"].append(message.get("id", ""))
+                message_id = message.get("id", "")
+                if message_id and message_id not in item["message_ids"]:
+                    item["message_ids"].append(message_id)
 
             if progress:
-                progress(messages_scanned, len(detections))
+                progress(messages_scanned, estimated_total, len(detections))
 
+        # Replace traces belonging to the services touched by this scan.
+        # This prevents repeated scans from inflating trace_count forever.
         for data in detections.values():
             service = get_or_create_service(session, data["definition"])
             link = session.scalar(
@@ -66,7 +83,7 @@ def scan_account(session, account_id, progress=None, cancel_check=None):
                     account_id=account.id,
                     service_id=service.id,
                     confidence_score=data["score"],
-                    trace_count=data["count"],
+                    trace_count=0,
                     first_detected_at=now,
                     last_detected_at=now,
                     status="À vérifier",
@@ -75,11 +92,15 @@ def scan_account(session, account_id, progress=None, cancel_check=None):
                 session.flush()
             else:
                 link.confidence_score = max(link.confidence_score, data["score"])
-                link.trace_count += data["count"]
                 link.last_detected_at = now
 
+            session.execute(
+                delete(ScanTrace).where(ScanTrace.account_service_id == link.id)
+            )
+            link.trace_count = len(data["message_ids"])
+
             for message_id in data["message_ids"]:
-                signal = next(iter(data["signals"]), "unknown")
+                signal = sorted(data["signals"])[0] if data["signals"] else "unknown"
                 session.add(
                     ScanTrace(
                         account_service_id=link.id,
@@ -95,13 +116,20 @@ def scan_account(session, account_id, progress=None, cancel_check=None):
         history.messages_scanned = messages_scanned
         history.services_detected = len(detections)
         session.commit()
+
+        if progress:
+            progress(messages_scanned, estimated_total, len(detections))
         return messages_scanned, len(detections)
 
     except ScanCancelled:
-        history.finished_at = datetime.now(timezone.utc)
-        history.status = "cancelled"
-        history.messages_scanned = messages_scanned
-        session.commit()
+        session.rollback()
+        history = session.get(ScanHistory, history.id)
+        if history:
+            history.finished_at = datetime.now(timezone.utc)
+            history.status = "cancelled"
+            history.messages_scanned = messages_scanned
+            history.services_detected = len(detections)
+            session.commit()
         raise
 
     except Exception as exc:
@@ -111,6 +139,7 @@ def scan_account(session, account_id, progress=None, cancel_check=None):
             history.finished_at = datetime.now(timezone.utc)
             history.status = "error"
             history.messages_scanned = messages_scanned
+            history.services_detected = len(detections)
             history.error = str(exc)
             session.commit()
         raise
