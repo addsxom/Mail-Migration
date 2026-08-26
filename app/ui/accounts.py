@@ -12,39 +12,58 @@ from app.scanner.scanner import scan_account, ScanCancelled
 
 
 class ScanWorker(QObject):
-    progress = Signal(int, int, int)
+    progress = Signal(int, int, int, int, int)
     detection = Signal(int, object)
-    finished = Signal(int, int)
-    error = Signal(str)
-    cancelled = Signal()
+    account_finished = Signal(int, int, int)
+    finished = Signal()
+    error = Signal(int, str)
+    cancelled = Signal(int)
 
-    def __init__(self, account_id):
+    def __init__(self, account_ids):
         super().__init__()
-        self.account_id = account_id
+        self.account_ids = list(account_ids)
         self._cancel = False
 
     def cancel(self):
         self._cancel = True
 
     def run(self):
-        session = get_session()
+        completed = 0
         try:
-            result = scan_account(
-                session,
-                self.account_id,
-                progress=lambda messages, total, services: self.progress.emit(
-                    messages, total, services
-                ),
-                cancel_check=lambda: self._cancel,
-                detection_callback=lambda data: self.detection.emit(self.account_id, data),
-            )
-            self.finished.emit(*result)
-        except ScanCancelled:
-            self.cancelled.emit()
+            for account_id in self.account_ids:
+                if self._cancel:
+                    self.cancelled.emit(account_id)
+                    break
+
+                session = get_session()
+                try:
+                    result = scan_account(
+                        session,
+                        account_id,
+                        progress=lambda messages, total, services, aid=account_id: self.progress.emit(
+                            aid, messages, total, services, completed
+                        ),
+                        cancel_check=lambda: self._cancel,
+                        detection_callback=lambda data, aid=account_id: self.detection.emit(aid, data),
+                    )
+                except ScanCancelled:
+                    self.cancelled.emit(account_id)
+                    break
+                except Exception as exc:
+                    self.error.emit(account_id, str(exc))
+                    continue
+                finally:
+                    session.close()
+
+                messages, services = result
+                completed += 1
+                self.account_finished.emit(account_id, messages, services)
+                self.progress.emit(account_id, messages, messages, services, completed)
+
+            self.finished.emit()
         except Exception as exc:
-            self.error.emit(str(exc))
-        finally:
-            session.close()
+            self.error.emit(0, str(exc))
+            self.finished.emit()
 
 
 class AccountsPage(QWidget):
@@ -57,6 +76,11 @@ class AccountsPage(QWidget):
         self.on_change = on_change or (lambda *_: None)
         self.thread = None
         self.worker = None
+        self.scan_account_ids = []
+        self.scan_completed = 0
+        self.scan_total_accounts = 0
+        self.scan_messages = {}
+        self.scan_services = {}
 
         layout = QVBoxLayout(self)
         title = QLabel("Comptes Google")
@@ -76,7 +100,7 @@ class AccountsPage(QWidget):
         self.reauthorize.clicked.connect(self.reauthorize_account)
         self.delete = QPushButton("Supprimer")
         self.delete.clicked.connect(self.remove_account)
-        self.scan = QPushButton("Analyser le compte sélectionné")
+        self.scan = QPushButton("Analyser les comptes sélectionnés")
         self.scan.clicked.connect(self.start_scan)
         self.cancel = QPushButton("Annuler")
         self.cancel.clicked.connect(self.cancel_scan)
@@ -106,7 +130,6 @@ class AccountsPage(QWidget):
         current_id = selected_id if selected_id is not None else self.selected_id()
         self.list.blockSignals(True)
         self.list.clear()
-
         session = get_session()
         try:
             accounts = get_accounts(session)
@@ -116,13 +139,10 @@ class AccountsPage(QWidget):
                 text = f"{label}  —  {account.email}  —  {state}"
                 if account.last_scan_at:
                     text += f"  —  Dernier scan : {account.last_scan_at:%d.%m.%Y %H:%M}"
-
                 item = QListWidgetItem(text)
                 item.setData(Qt.UserRole, account.id)
                 item.setToolTip(
-                    f"Compte : {account.email}\n"
-                    f"Nom : {label}\n"
-                    f"État OAuth : {state}"
+                    f"Compte : {account.email}\nNom : {label}\nÉtat OAuth : {state}"
                 )
                 self.list.addItem(item)
                 if account.id == current_id:
@@ -130,7 +150,6 @@ class AccountsPage(QWidget):
                     self.list.setCurrentItem(item)
         finally:
             session.close()
-
         self.list.blockSignals(False)
         self.selection_changed()
 
@@ -142,10 +161,10 @@ class AccountsPage(QWidget):
             + (f" — compte actif : #{current}" if current else "")
         )
         has_one = current is not None
-        self.rename.setEnabled(has_one)
-        self.reauthorize.setEnabled(has_one)
-        self.delete.setEnabled(has_one)
-        self.scan.setEnabled(has_one and self.worker is None)
+        self.rename.setEnabled(has_one and self.worker is None)
+        self.reauthorize.setEnabled(has_one and self.worker is None)
+        self.delete.setEnabled(has_one and self.worker is None)
+        self.scan.setEnabled(bool(ids) and self.worker is None)
         self.on_change(current)
 
     def selected_ids(self):
@@ -162,12 +181,7 @@ class AccountsPage(QWidget):
             try:
                 existing = session.query(GoogleAccount).filter_by(email=email).first()
                 if not existing:
-                    account = GoogleAccount(
-                        email=email,
-                        display_name=email,
-                        token_reference=token_name,
-                        active=True,
-                    )
+                    account = GoogleAccount(email=email, display_name=email, token_reference=token_name, active=True)
                     session.add(account)
                     session.flush()
                     account_id = account.id
@@ -178,7 +192,6 @@ class AccountsPage(QWidget):
                 session.commit()
             finally:
                 session.close()
-
             self.refresh(account_id)
             self.on_change(account_id)
         except Exception as exc:
@@ -230,12 +243,7 @@ class AccountsPage(QWidget):
                     existing.active = True
                     target_id = existing.id
                 else:
-                    new_account = GoogleAccount(
-                        email=email,
-                        display_name=email,
-                        token_reference=token_name,
-                        active=True,
-                    )
+                    new_account = GoogleAccount(email=email, display_name=email, token_reference=token_name, active=True)
                     session.add(new_account)
                     session.flush()
                     target_id = new_account.id
@@ -262,9 +270,7 @@ class AccountsPage(QWidget):
             session.close()
         answer = QMessageBox.question(
             self, "Supprimer le compte",
-            f"Supprimer « {label} » ({email}) ?\n\n"
-            "Cela supprimera aussi ses services détectés, traces et historique local.\n"
-            "L'autorisation Google locale sera également révoquée.",
+            f"Supprimer « {label} » ({email}) ?\n\nCela supprimera aussi ses services détectés, traces et historique local.\nL'autorisation Google locale sera également révoquée.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
         )
         if answer != QMessageBox.Yes:
@@ -282,45 +288,56 @@ class AccountsPage(QWidget):
             QMessageBox.critical(self, "Suppression", str(exc))
 
     def start_scan(self):
-        account_id = self.selected_id()
-        if not account_id:
-            QMessageBox.information(self, "Scan", "Sélectionne d'abord un compte.")
+        account_ids = self.selected_ids()
+        if not account_ids:
+            QMessageBox.information(self, "Scan", "Sélectionne au moins un compte.")
             return
+
+        self.scan_account_ids = account_ids
+        self.scan_completed = 0
+        self.scan_total_accounts = len(account_ids)
+        self.scan_messages.clear()
+        self.scan_services.clear()
         self.scan.setEnabled(False)
         self.cancel.setEnabled(True)
         self.progress.setValue(0)
-        self.progress.setFormat("Préparation du scan...")
-        self.status.setText("Préparation du scan Gmail...")
-        self.scan_started.emit(account_id)
+        self.progress.setFormat("Préparation...")
+        self.status.setText(f"Préparation du scan de {len(account_ids)} compte(s)...")
+
+        for account_id in account_ids:
+            self.scan_started.emit(account_id)
 
         self.thread = QThread()
-        self.worker = ScanWorker(account_id)
+        self.worker = ScanWorker(account_ids)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.scan_progress)
         self.worker.detection.connect(self.scan_detection.emit)
-        self.worker.finished.connect(self.scan_finished)
+        self.worker.finished.connect(self.scan_all_finished)
         self.worker.cancelled.connect(self.scan_cancelled)
         self.worker.error.connect(self.scan_error)
         self.thread.start()
 
-    def scan_progress(self, messages, total, services):
-        if total > 0:
-            percent = min(100, int(messages * 100 / total))
-            self.progress.setValue(percent)
-            self.progress.setFormat(f"{percent}%")
-            total_text = f"{messages:,} / ~{total:,} messages"
-        else:
-            self.progress.setValue(0)
-            self.progress.setFormat("En cours")
-            total_text = f"{messages:,} messages"
-        self.status.setText(f"Scan en cours — {total_text} — {services} service(s) détecté(s)")
+    def scan_progress(self, account_id, messages, total, services, completed_accounts):
+        self.scan_messages[account_id] = messages
+        self.scan_services[account_id] = services
+        account_progress = (messages / total * 100) if total > 0 else 0
+        overall = ((completed_accounts + account_progress / 100) / max(1, self.scan_total_accounts)) * 100
+        self.progress.setValue(min(100, int(overall)))
+        self.progress.setFormat(f"{int(overall)}%")
+        total_messages = sum(self.scan_messages.values())
+        total_services = max(self.scan_services.values(), default=0)
+        self.status.setText(
+            f"Scan {completed_accounts + 1}/{self.scan_total_accounts} — "
+            f"{messages:,} / ~{total:,} messages — "
+            f"{total_messages:,} message(s) traités — {total_services} service(s) détecté(s)"
+        )
 
     def cancel_scan(self):
         if self.worker:
             self.worker.cancel()
             self.cancel.setEnabled(False)
-            self.status.setText("Annulation demandée — fin de la requête Gmail en cours...")
+            self.status.setText("Annulation demandée — arrêt des scans en cours...")
 
     def cleanup_thread(self):
         thread = self.thread
@@ -334,23 +351,43 @@ class AccountsPage(QWidget):
             thread.quit()
             thread.wait()
 
-    def scan_finished(self, messages, services):
-        self.progress.setValue(100)
-        self.progress.setFormat("Terminé")
-        self.status.setText(f"Scan terminé — {messages:,} messages — {services} service(s) détecté(s).")
-        self.refresh(self.selected_id())
-        self.scan_finished_live.emit(self.selected_id() or 0)
+    def scan_all_finished(self):
+        self.progress.setValue(100 if self.scan_completed >= self.scan_total_accounts else self.progress.value())
+        if self.scan_completed >= self.scan_total_accounts:
+            self.progress.setFormat("Terminé")
+            self.status.setText(
+                f"Scan terminé — {sum(self.scan_messages.values()):,} messages — "
+                f"{max(self.scan_services.values(), default=0)} service(s) détecté(s)."
+            )
         self.cleanup_thread()
 
-    def scan_cancelled(self):
+    def scan_finished(self, messages, services):
+        self.scan_completed += 1
+        self.scan_messages[self.selected_id() or 0] = messages
+        self.scan_services[self.selected_id() or 0] = services
+        self.refresh(self.selected_id())
+
+    def scan_cancelled(self, account_id):
         self.progress.setFormat("Annulé")
         self.status.setText("Scan annulé.")
-        self.scan_finished_live.emit(self.selected_id() or 0)
+        self.scan_finished_live.emit(account_id)
         self.cleanup_thread()
 
-    def scan_error(self, message):
-        self.progress.setFormat("Erreur")
-        self.status.setText("Erreur pendant le scan.")
-        self.scan_finished_live.emit(self.selected_id() or 0)
-        self.cleanup_thread()
-        QMessageBox.critical(self, "Erreur de scan", message)
+    def scan_error(self, account_id, message):
+        if account_id:
+            self.scan_finished_live.emit(account_id)
+        if self.worker:
+            self.status.setText(f"Erreur sur le compte #{account_id} — poursuite des autres comptes...")
+        else:
+            self.status.setText("Erreur pendant le scan.")
+        if account_id == 0:
+            self.cleanup_thread()
+            QMessageBox.critical(self, "Erreur de scan", message)
+        else:
+            QMessageBox.warning(self, "Erreur de scan", f"Compte #{account_id} : {message}")
+
+    def scan_account_finished(self, account_id, messages, services):
+        self.scan_completed += 1
+        self.scan_messages[account_id] = messages
+        self.scan_services[account_id] = services
+        self.scan_finished_live.emit(account_id)
