@@ -3,11 +3,18 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QMessageBox, QInputDialog
 )
+from PySide6.QtCore import Qt
+
 from app.database.database import get_session
 from app.database.models import GoogleAccount
-from app.database.repositories import get_accounts, delete_account
-from app.google.oauth import authorize, revoke_token, token_path_for_email
+from app.database.repositories import get_accounts, delete_account, update_account
+from app.google.oauth import (
+    authorize,
+    credential_state,
+    revoke_token,
+)
 from app.scanner.scanner import scan_account, ScanCancelled
+
 
 class ScanWorker(QObject):
     progress = Signal(int, int)
@@ -40,10 +47,11 @@ class ScanWorker(QObject):
         finally:
             session.close()
 
+
 class AccountsPage(QWidget):
-    def __init__(self, on_change):
+    def __init__(self, on_change=None):
         super().__init__()
-        self.on_change = on_change
+        self.on_change = on_change or (lambda *_: None)
         self.thread = None
         self.worker = None
 
@@ -52,17 +60,27 @@ class AccountsPage(QWidget):
         title.setObjectName("title")
         layout.addWidget(title)
 
+        self.selected_label = QLabel("Aucun compte sélectionné")
+        self.selected_label.setObjectName("muted")
+        layout.addWidget(self.selected_label)
+
         actions = QHBoxLayout()
         add = QPushButton("+ Ajouter un compte")
         add.clicked.connect(self.add_account)
+        self.rename = QPushButton("Renommer")
+        self.rename.clicked.connect(self.rename_account)
+        self.reauthorize = QPushButton("Réautoriser")
+        self.reauthorize.clicked.connect(self.reauthorize_account)
+        self.delete = QPushButton("Supprimer")
+        self.delete.clicked.connect(self.remove_account)
         self.scan = QPushButton("Analyser le compte sélectionné")
         self.scan.clicked.connect(self.start_scan)
         self.cancel = QPushButton("Annuler")
         self.cancel.clicked.connect(self.cancel_scan)
         self.cancel.setEnabled(False)
-        actions.addWidget(add)
-        actions.addWidget(self.scan)
-        actions.addWidget(self.cancel)
+
+        for widget in (add, self.rename, self.reauthorize, self.delete, self.scan, self.cancel):
+            actions.addWidget(widget)
         actions.addStretch()
         layout.addLayout(actions)
 
@@ -70,46 +88,197 @@ class AccountsPage(QWidget):
         layout.addWidget(self.status)
 
         self.list = QListWidget()
+        self.list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.list.itemSelectionChanged.connect(self.selection_changed)
         layout.addWidget(self.list)
 
-    def refresh(self):
+    def refresh(self, selected_id=None):
+        current_id = selected_id if selected_id is not None else self.selected_id()
+        self.list.blockSignals(True)
         self.list.clear()
+
         session = get_session()
         try:
-            for account in get_accounts(session):
-                text = f"{account.email}  —  {'Actif' if account.active else 'Inactif'}"
+            accounts = get_accounts(session)
+            for account in accounts:
+                state = credential_state(account.email) if account.active else "Désactivé"
+                label = account.display_name or account.email
+                text = f"{label}  —  {account.email}  —  {state}"
                 if account.last_scan_at:
                     text += f"  —  Dernier scan : {account.last_scan_at:%d.%m.%Y %H:%M}"
+
                 item = QListWidgetItem(text)
-                item.setData(256, account.id)
+                item.setData(Qt.UserRole, account.id)
+                item.setToolTip(
+                    f"Compte : {account.email}\n"
+                    f"Nom : {label}\n"
+                    f"État OAuth : {state}"
+                )
                 self.list.addItem(item)
+                if account.id == current_id:
+                    item.setSelected(True)
+                    self.list.setCurrentItem(item)
         finally:
             session.close()
+
+        self.list.blockSignals(False)
+        self.selection_changed()
+
+    def selection_changed(self):
+        ids = self.selected_ids()
+        current = self.selected_id()
+        self.selected_label.setText(
+            f"{len(ids)} compte(s) sélectionné(s)"
+            + (f" — compte actif : #{current}" if current else "")
+        )
+        has_one = current is not None
+        self.rename.setEnabled(has_one)
+        self.reauthorize.setEnabled(has_one)
+        self.delete.setEnabled(has_one)
+        self.scan.setEnabled(has_one and self.worker is None)
+        self.on_change(current)
+
+    def selected_ids(self):
+        return [item.data(Qt.UserRole) for item in self.list.selectedItems()]
+
+    def selected_id(self):
+        item = self.list.currentItem()
+        return item.data(Qt.UserRole) if item else None
 
     def add_account(self):
         try:
             email, token_name = authorize()
             session = get_session()
-            existing = session.query(GoogleAccount).filter_by(email=email).first()
-            if not existing:
-                session.add(GoogleAccount(
-                    email=email,
-                    display_name=email,
-                    token_reference=token_name,
-                ))
-            else:
-                existing.active = True
-                existing.token_reference = token_name
-            session.commit()
-            session.close()
-            self.refresh()
-            self.on_change()
+            try:
+                existing = session.query(GoogleAccount).filter_by(email=email).first()
+                if not existing:
+                    session.add(
+                        GoogleAccount(
+                            email=email,
+                            display_name=email,
+                            token_reference=token_name,
+                            active=True,
+                        )
+                    )
+                else:
+                    existing.active = True
+                    existing.token_reference = token_name
+                session.commit()
+                account_id = existing.id if existing else None
+                if account_id is None:
+                    account = session.query(GoogleAccount).filter_by(email=email).first()
+                    account_id = account.id if account else None
+            finally:
+                session.close()
+
+            self.refresh(account_id)
+            self.on_change(account_id)
         except Exception as exc:
             QMessageBox.critical(self, "OAuth", str(exc))
 
-    def selected_id(self):
-        item = self.list.currentItem()
-        return item.data(256) if item else None
+    def rename_account(self):
+        account_id = self.selected_id()
+        if not account_id:
+            return
+
+        session = get_session()
+        try:
+            account = session.get(GoogleAccount, account_id)
+            if not account:
+                return
+            current = account.display_name or account.email
+        finally:
+            session.close()
+
+        name, ok = QInputDialog.getText(self, "Nom du compte", "Nom personnalisé :", text=current)
+        if not ok:
+            return
+
+        session = get_session()
+        try:
+            update_account(session, account_id, display_name=name)
+        finally:
+            session.close()
+        self.refresh(account_id)
+        self.on_change(account_id)
+
+    def reauthorize_account(self):
+        account_id = self.selected_id()
+        if not account_id:
+            return
+
+        try:
+            email, token_name = authorize()
+            session = get_session()
+            try:
+                account = session.get(GoogleAccount, account_id)
+                existing = session.query(GoogleAccount).filter_by(email=email).first()
+
+                if account and account.email.lower() == email.lower():
+                    account.token_reference = token_name
+                    account.active = True
+                    target_id = account.id
+                elif existing:
+                    existing.token_reference = token_name
+                    existing.active = True
+                    target_id = existing.id
+                else:
+                    new_account = GoogleAccount(
+                        email=email,
+                        display_name=email,
+                        token_reference=token_name,
+                        active=True,
+                    )
+                    session.add(new_account)
+                    session.flush()
+                    target_id = new_account.id
+                session.commit()
+            finally:
+                session.close()
+
+            self.refresh(target_id)
+            self.on_change(target_id)
+        except Exception as exc:
+            QMessageBox.critical(self, "Réautorisation", str(exc))
+
+    def remove_account(self):
+        account_id = self.selected_id()
+        if not account_id:
+            return
+
+        session = get_session()
+        try:
+            account = session.get(GoogleAccount, account_id)
+            if not account:
+                return
+            email = account.email
+            label = account.display_name or email
+        finally:
+            session.close()
+
+        answer = QMessageBox.question(
+            self,
+            "Supprimer le compte",
+            f"Supprimer « {label} » ({email}) ?\n\n"
+            "Cela supprimera aussi ses services détectés, traces et historique local.\n"
+            "L'autorisation Google locale sera également révoquée.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        try:
+            revoke_token(email)
+            session = get_session()
+            try:
+                delete_account(session, account_id)
+            finally:
+                session.close()
+            self.refresh()
+            self.on_change(None)
+        except Exception as exc:
+            QMessageBox.critical(self, "Suppression", str(exc))
 
     def start_scan(self):
         account_id = self.selected_id()
@@ -148,7 +317,8 @@ class AccountsPage(QWidget):
         self.worker = None
         self.scan.setEnabled(True)
         self.cancel.setEnabled(False)
-        self.on_change()
+        self.selection_changed()
+        self.on_change(self.selected_id())
 
     def scan_finished(self, messages, services):
         self.status.setText(f"Terminé : {messages} messages — {services} services détectés.")
