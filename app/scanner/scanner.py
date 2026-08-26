@@ -13,7 +13,14 @@ class ScanCancelled(Exception):
     pass
 
 
-def scan_account(session, account_id, progress=None, cancel_check=None, query=""):
+def scan_account(
+    session,
+    account_id,
+    progress=None,
+    cancel_check=None,
+    query="",
+    detection_callback=None,
+):
     account = session.get(GoogleAccount, account_id)
     if not account:
         raise ValueError("Compte introuvable.")
@@ -63,11 +70,20 @@ def scan_account(session, account_id, progress=None, cancel_check=None, query=""
                 if message_id and message_id not in item["message_ids"]:
                     item["message_ids"].append(message_id)
 
+                if detection_callback:
+                    detection_callback(
+                        {
+                            "name": item["definition"]["name"],
+                            "category": item["definition"].get("category", "Autre"),
+                            "score": item["score"],
+                            "count": item["count"],
+                            "signals": sorted(item["signals"]),
+                        }
+                    )
+
             if progress:
                 progress(messages_scanned, estimated_total, len(detections))
 
-        # Replace traces belonging to the services touched by this scan.
-        # This prevents repeated scans from inflating trace_count forever.
         for data in detections.values():
             service = get_or_create_service(session, data["definition"])
             link = session.scalar(
