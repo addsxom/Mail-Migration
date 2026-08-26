@@ -1,15 +1,17 @@
 import sys
-import logging
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QStackedWidget, QLabel, QMessageBox
+    QPushButton, QStackedWidget, QLabel
 )
+
+from app.core.account_state import AccountState
 from app.core.logger import setup_logging
 from app.database.database import init_db
 from .dashboard import DashboardPage
 from .accounts import AccountsPage
 from .services import ServicesPage
+
 
 STYLE = """
 QMainWindow, QWidget {
@@ -39,12 +41,16 @@ QLabel#muted {
 }
 """
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Mail Migration")
         self.resize(1180, 760)
         self.setStyleSheet(STYLE)
+
+        self.account_state = AccountState()
+        self.account_state.changed.connect(self._account_changed)
 
         root = QWidget()
         layout = QHBoxLayout(root)
@@ -57,7 +63,7 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self.dashboard = DashboardPage()
-        self.accounts = AccountsPage(self.refresh_all)
+        self.accounts = AccountsPage(self.set_active_account)
         self.services = ServicesPage()
 
         self.stack.addWidget(self.dashboard)
@@ -70,7 +76,9 @@ class MainWindow(QMainWindow):
             ("Services", 2),
         ]:
             button = QPushButton(text)
-            button.clicked.connect(lambda checked=False, i=index: self.stack.setCurrentIndex(i))
+            button.clicked.connect(
+                lambda checked=False, i=index: self.stack.setCurrentIndex(i)
+            )
             sidebar.addWidget(button)
 
         sidebar.addStretch()
@@ -84,10 +92,22 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.refresh_all()
 
+    @property
+    def active_account_id(self):
+        return self.account_state.account_id
+
+    def set_active_account(self, account_id):
+        self.account_state.set_account(account_id)
+
+    def _account_changed(self, account_id):
+        self.dashboard.set_active_account(account_id)
+        self.services.set_active_account(account_id)
+
     def refresh_all(self):
+        self.accounts.refresh(self.active_account_id)
         self.dashboard.refresh()
-        self.accounts.refresh()
         self.services.refresh()
+
 
 def run():
     setup_logging()
