@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
+from pathlib import Path
+import re
 
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QFontMetrics
+from PySide6.QtCore import Qt, QRectF, QSize
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QFontMetrics, QIcon, QPixmap, QFont
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
@@ -14,6 +16,58 @@ from app.database.models import GoogleAccount, AccountService, ScanTrace, Servic
 from app.database.repositories import get_accounts, get_account_services
 
 MIGRATION_STATUSES = ["À vérifier", "À migrer", "Migré", "Abandonné"]
+
+
+_ICON_CACHE = {}
+
+
+def _service_icon_key(name):
+    return re.sub(r"[^a-z0-9]+", "-", str(name or "service").strip().lower()).strip("-") or "service"
+
+
+def _service_initials(name):
+    words = [word for word in re.split(r"\s+", str(name or "Service").strip()) if word]
+    if not words:
+        return "?"
+    if len(words) == 1:
+        letters = re.sub(r"[^A-Za-z0-9]", "", words[0])
+        return (letters[:2] or "?").upper()
+    return (words[0][0] + words[1][0]).upper()
+
+
+def _service_icon(name, category=""):
+    key = (_service_icon_key(name), str(category or ""))
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+
+    # If real local logos are added later, they automatically take priority.
+    assets_dir = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
+    for suffix in (".png", ".jpg", ".jpeg", ".svg"):
+        candidate = assets_dir / f"{key[0]}{suffix}"
+        if candidate.exists():
+            icon = QIcon(str(candidate))
+            _ICON_CACHE[key] = icon
+            return icon
+
+    # Clean fallback avatar: initials inside a small dark circular badge.
+    size = 32
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setBrush(QColor(48, 56, 70))
+    painter.setPen(Qt.NoPen)
+    painter.drawEllipse(1, 1, size - 2, size - 2)
+    painter.setPen(QColor(231, 234, 240))
+    font = QFont()
+    font.setBold(True)
+    font.setPointSize(9)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignCenter, _service_initials(name))
+    painter.end()
+    icon = QIcon(pixmap)
+    _ICON_CACHE[key] = icon
+    return icon
 
 
 class ServiceDetailsDialog(QDialog):
@@ -229,11 +283,29 @@ class ServiceTableDelegate(QStyledItemDelegate):
             painter.fillPath(path, QColor(29, 34, 43))
         text = index.data(Qt.DisplayRole)
         if text is not None:
-            text_rect = option.rect.adjusted(10, 0, -10, 0)
+            icon = index.data(Qt.DecorationRole)
+            if isinstance(icon, QIcon) and not icon.isNull():
+                icon_size = 28
+                icon_rect = QRectF(
+                    option.rect.center().x() - (QFontMetrics(option.font).horizontalAdvance(str(text)) + icon_size + 8) / 2,
+                    option.rect.center().y() - icon_size / 2,
+                    icon_size,
+                    icon_size,
+                )
+                icon.paint(painter, icon_rect.toRect(), Qt.AlignCenter, QIcon.Normal, QIcon.Off)
+                text_width = QFontMetrics(option.font).horizontalAdvance(str(text))
+                text_rect = QRectF(
+                    icon_rect.right() + 8,
+                    option.rect.top(),
+                    text_width + 2,
+                    option.rect.height(),
+                )
+            else:
+                text_rect = option.rect.adjusted(10, 0, -10, 0)
             painter.setPen(QColor(231, 234, 240))
             painter.setFont(option.font)
-            display_text = QFontMetrics(option.font).elidedText(str(text), Qt.ElideRight, max(0, text_rect.width()))
-            painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignHCenter, display_text)
+            display_text = QFontMetrics(option.font).elidedText(str(text), Qt.ElideRight, max(0, int(text_rect.width())))
+            painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, display_text)
         painter.restore()
 
 
@@ -352,6 +424,7 @@ class ServicesPage(QWidget):
         """)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(54)
+        self.table.setIconSize(QSize(28, 28))
         self.table.setItemDelegate(ServiceTableDelegate(self.table))
         layout.addWidget(self.table)
 
@@ -401,6 +474,10 @@ class ServicesPage(QWidget):
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
                 item.setForeground(QColor(231, 234, 240))
                 item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                if c == 1:
+                    detail = details[r]
+                    item.setIcon(_service_icon(detail.get("name"), detail.get("category")))
+                    item.setToolTip(str(detail.get("name") or "Service"))
                 self.table.setItem(r, c, item)
         self.table.clearSelection()
         self.table.setCurrentItem(None)
