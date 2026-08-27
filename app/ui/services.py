@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from PySide6.QtCore import Qt, QRectF, QSize
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QFontMetrics, QIcon, QPixmap, QFont
@@ -15,9 +17,32 @@ from app.database.database import get_session
 from app.database.models import GoogleAccount, AccountService, ScanTrace, Service
 from app.database.repositories import get_accounts, get_account_services
 
+
 MIGRATION_STATUSES = ["À vérifier", "À migrer", "Migré", "Abandonné"]
 
 _ICON_CACHE = {}
+
+SERVICE_DOMAINS = {
+    "amazon": "amazon.com", "apple": "apple.com", "discord": "discord.com",
+    "dropbox": "dropbox.com", "epic-games": "epicgames.com", "epicgames": "epicgames.com",
+    "facebook": "facebook.com", "google": "google.com", "google-drive": "drive.google.com",
+    "instagram": "instagram.com", "linkedin": "linkedin.com", "microsoft": "microsoft.com",
+    "microsoft-365": "microsoft.com", "netflix": "netflix.com", "nintendo": "nintendo.com",
+    "nintendo-switch": "nintendo.com", "paypal": "paypal.com", "playstation": "playstation.com",
+    "reddit": "reddit.com", "roblox": "roblox.com", "samsung": "samsung.com",
+    "spotify": "spotify.com", "steam": "steampowered.com", "tiktok": "tiktok.com",
+    "twitch": "twitch.tv", "twitter": "x.com", "x": "x.com", "ubisoft": "ubisoft.com",
+    "xbox": "xbox.com", "youtube": "youtube.com", "yahoo": "yahoo.com",
+    "airbnb": "airbnb.com", "adobe": "adobe.com", "canva": "canva.com",
+    "github": "github.com", "gitlab": "gitlab.com", "nvidia": "nvidia.com",
+    "ea": "ea.com", "ea-games": "ea.com", "battle-net": "battle.net",
+    "blizzard": "blizzard.com", "riot-games": "riotgames.com", "valorant": "playvalorant.com",
+    "2k": "2k.com", "nba-2k": "nba.2k.com", "take-two": "taketwointeractivesoftware.com",
+    "snapchat": "snapchat.com", "telegram": "telegram.org", "whatsapp": "whatsapp.com",
+    "xhamster": "xhamster.com", "aliexpress": "aliexpress.com", "zalando": "zalando.ch",
+    "digitec": "digitec.ch", "galaxus": "galaxus.ch", "ricardo": "ricardo.ch",
+    "swisscom": "swisscom.ch", "sunrise": "sunrise.ch", "salt": "salt.ch",
+}
 
 
 def _service_icon_key(name):
@@ -34,19 +59,18 @@ def _service_initials(name):
     return (words[0][0] + words[1][0]).upper()
 
 
-def _service_icon(name, category=""):
-    key = (_service_icon_key(name), str(category or ""))
-    if key in _ICON_CACHE:
-        return _ICON_CACHE[key]
+def _service_domain(name):
+    key = _service_icon_key(name)
+    if key in SERVICE_DOMAINS:
+        return SERVICE_DOMAINS[key]
+    compact = key.replace("-", "")
+    for known_key, domain in SERVICE_DOMAINS.items():
+        if known_key.replace("-", "") == compact:
+            return domain
+    return None
 
-    assets_dir = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
-    for suffix in (".png", ".jpg", ".jpeg", ".svg"):
-        candidate = assets_dir / f"{key[0]}{suffix}"
-        if candidate.exists():
-            icon = QIcon(str(candidate))
-            _ICON_CACHE[key] = icon
-            return icon
 
+def _fallback_service_icon(name):
     size = 32
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -62,7 +86,39 @@ def _service_icon(name, category=""):
     painter.setFont(font)
     painter.drawText(pixmap.rect(), Qt.AlignCenter, _service_initials(name))
     painter.end()
-    icon = QIcon(pixmap)
+    return QIcon(pixmap)
+
+
+def _service_icon(name, category=""):
+    key = (_service_icon_key(name), str(category or ""))
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+
+    assets_dir = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
+    local_key = key[0]
+    for suffix in (".png", ".jpg", ".jpeg", ".svg"):
+        candidate = assets_dir / f"{local_key}{suffix}"
+        if candidate.exists():
+            icon = QIcon(str(candidate))
+            _ICON_CACHE[key] = icon
+            return icon
+
+    domain = _service_domain(name)
+    if domain:
+        try:
+            url = f"https://www.google.com/s2/favicons?sz=64&domain={quote(domain)}"
+            request = Request(url, headers={"User-Agent": "Mail-Migration/1.0"})
+            with urlopen(request, timeout=2.5) as response:
+                data = response.read()
+            pixmap = QPixmap()
+            if pixmap.loadFromData(data):
+                icon = QIcon(pixmap)
+                _ICON_CACHE[key] = icon
+                return icon
+        except Exception:
+            pass
+
+    icon = _fallback_service_icon(name)
     _ICON_CACHE[key] = icon
     return icon
 
@@ -275,8 +331,9 @@ class ServiceDetailsDialog(QDialog):
 
 class ServiceTableDelegate(QStyledItemDelegate):
     ICON_SIZE = 28
+    ICON_LEFT_PADDING = 12
     ICON_TEXT_GAP = 8
-    SIDE_PADDING = 12
+    TEXT_RIGHT_PADDING = 12
 
     def paint(self, painter, option, index):
         table = self.parent()
@@ -284,12 +341,7 @@ class ServiceTableDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing, True)
 
         if index.column() == 0:
-            rect = QRectF(
-                4,
-                option.rect.top() + 5,
-                max(0.0, table.viewport().width() - 8),
-                max(0.0, option.rect.height() - 10),
-            )
+            rect = QRectF(4, option.rect.top() + 5, max(0.0, table.viewport().width() - 8), max(0.0, option.rect.height() - 10))
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
@@ -299,71 +351,45 @@ class ServiceTableDelegate(QStyledItemDelegate):
             painter.setPen(QColor(231, 234, 240))
             painter.setFont(option.font)
             metrics = QFontMetrics(option.font)
-            icon = index.data(Qt.DecorationRole)
 
-            if isinstance(icon, QIcon) and not icon.isNull():
+            if index.column() == 1:
+                icon = index.data(Qt.DecorationRole)
                 icon_size = self.ICON_SIZE
-                max_text_width = max(
-                    20,
-                    option.rect.width()
-                    - (self.SIDE_PADDING * 2)
-                    - icon_size
-                    - self.ICON_TEXT_GAP,
-                )
-                display_text = metrics.elidedText(
-                    str(text),
-                    Qt.ElideRight,
-                    int(max_text_width),
-                )
-                text_width = min(
-                    metrics.horizontalAdvance(display_text),
-                    int(max_text_width),
-                )
-                group_width = icon_size + self.ICON_TEXT_GAP + text_width
-                start_x = option.rect.center().x() - (group_width / 2)
-                min_x = option.rect.left() + self.SIDE_PADDING
-                max_x = option.rect.right() - self.SIDE_PADDING - group_width
-                start_x = max(min_x, min(start_x, max_x))
+                icon_x = option.rect.left() + self.ICON_LEFT_PADDING
+                icon_y = option.rect.center().y() - icon_size / 2
 
-                icon_rect = QRectF(
-                    start_x,
-                    option.rect.center().y() - (icon_size / 2),
-                    icon_size,
-                    icon_size,
-                )
-                icon.paint(
-                    painter,
-                    icon_rect.toRect(),
-                    Qt.AlignCenter,
-                    QIcon.Normal,
-                    QIcon.Off,
-                )
+                if isinstance(icon, QIcon) and not icon.isNull():
+                    icon.paint(
+                        painter,
+                        int(icon_x),
+                        int(icon_y),
+                        icon_size,
+                        icon_size,
+                        Qt.AlignCenter,
+                        QIcon.Normal,
+                        QIcon.Off,
+                    )
 
-                text_rect = QRectF(
-                    icon_rect.right() + self.ICON_TEXT_GAP,
-                    option.rect.top(),
-                    text_width + 1,
-                    option.rect.height(),
-                )
-                painter.drawText(
-                    text_rect,
-                    Qt.AlignVCenter | Qt.AlignLeft,
-                    display_text,
-                )
-            else:
+                text_left = option.rect.left() + self.ICON_LEFT_PADDING + icon_size + self.ICON_TEXT_GAP
+                text_right = option.rect.right() - self.TEXT_RIGHT_PADDING
                 text_rect = option.rect.adjusted(
-                    self.SIDE_PADDING, 0, -self.SIDE_PADDING, 0
+                    int(text_left - option.rect.left()), 0,
+                    int(text_right - option.rect.right()), 0,
                 )
                 display_text = metrics.elidedText(
-                    str(text),
-                    Qt.ElideRight,
-                    max(0, text_rect.width()),
+                    str(text), Qt.ElideRight, max(20, int(text_rect.width()))
                 )
                 painter.drawText(
                     text_rect,
                     Qt.AlignVCenter | Qt.AlignHCenter,
                     display_text,
                 )
+            else:
+                text_rect = option.rect.adjusted(
+                    self.ICON_LEFT_PADDING, 0, -self.TEXT_RIGHT_PADDING, 0
+                )
+                display_text = metrics.elidedText(str(text), Qt.ElideRight, max(0, text_rect.width()))
+                painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignHCenter, display_text)
 
         painter.restore()
 
@@ -379,12 +405,7 @@ class ServiceTable(QTableWidget):
                 break
             if y + height < 0:
                 continue
-            rect = QRectF(
-                4,
-                y + 5,
-                max(0.0, self.viewport().width() - 8),
-                max(0.0, height - 10),
-            )
+            rect = QRectF(4, y + 5, max(0.0, self.viewport().width() - 8), max(0.0, height - 10))
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
@@ -637,9 +658,9 @@ class ServicesPage(QWidget):
         buttons.addStretch()
         cancel = QPushButton("Annuler")
         cancel.clicked.connect(dialog.reject)
+        buttons.addWidget(cancel)
         save = QPushButton("Enregistrer")
         save.clicked.connect(dialog.accept)
-        buttons.addWidget(cancel)
         buttons.addWidget(save)
         box.addLayout(buttons)
         if dialog.exec() != QDialog.Accepted:
