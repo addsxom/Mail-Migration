@@ -1,16 +1,20 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.database.models import GoogleAccount, AccountService, ScanHistory, ScanTrace
 from app.database.repositories import get_or_create_service
 from app.google.gmail import get_message_count, iter_message_metadata
 from app.services.builtin_catalog import CATALOG
+from .catalog_index import CatalogIndex
 from .detector import detect_message
 
 
 class ScanCancelled(Exception):
     pass
+
+
+UNKNOWN_MIN_MESSAGES = 2
 
 
 def _persist_detection(session, account, data):
@@ -69,6 +73,46 @@ def _persist_partial(session, account, detections):
     session.commit()
 
 
+def _new_detection_bucket(detection):
+    return {
+        "definition": detection.service,
+        "score": detection.score,
+        "signals": set(detection.signals),
+        "count": 0,
+        "message_ids": [],
+    }
+
+
+def _add_detection(bucket, detection, message_id):
+    bucket["score"] = max(bucket["score"], detection.score)
+    bucket["signals"].update(detection.signals)
+    bucket["count"] += 1
+    if message_id and message_id not in bucket["message_ids"]:
+        bucket["message_ids"].append(message_id)
+
+
+def _callback_data(account, item, link):
+    return {
+        "account_id": account.id,
+        "account_service_id": link.id,
+        "account_email": account.email,
+        "name": item["definition"]["name"],
+        "service_id": item["definition"].get("name"),
+        "category": item["definition"].get("category", "Autre"),
+        "subcategory": item["definition"].get("subcategory"),
+        "score": item["score"],
+        "count": item["count"],
+        "status": link.status or "À vérifier",
+        "priority": link.priority or "Normale",
+        "destination_email": link.destination_email,
+        "notes": link.notes,
+        "first_detected_at": link.first_detected_at,
+        "last_detected_at": link.last_detected_at,
+        "signals": sorted(item["signals"]),
+        "reliability": {},
+    }
+
+
 def scan_account(
     session,
     account_id,
@@ -88,9 +132,11 @@ def scan_account(
     session.commit()
 
     detections = {}
+    unknown_candidates = {}
     messages_scanned = 0
     estimated_total = 0
     last_persist = 0
+    catalog_index = CatalogIndex(CATALOG)
 
     try:
         estimated_total = get_message_count(account.email, query=query)
@@ -107,51 +153,38 @@ def scan_account(
                 raise ScanCancelled()
 
             messages_scanned += 1
-            results = detect_message(message, CATALOG)
+            message_id = message.get("id", "")
+            results = detect_message(message, CATALOG, catalog_index=catalog_index)
 
             for detection in results:
                 key = detection.service["name"]
-                if key not in detections:
-                    detections[key] = {
-                        "definition": detection.service,
-                        "score": detection.score,
-                        "signals": set(detection.signals),
-                        "count": 0,
-                        "message_ids": [],
-                    }
 
-                item = detections[key]
-                item["score"] = max(item["score"], detection.score)
-                item["signals"].update(detection.signals)
-                item["count"] += 1
-                message_id = message.get("id", "")
-                if message_id and message_id not in item["message_ids"]:
-                    item["message_ids"].append(message_id)
+                if detection.service.get("unknown"):
+                    item = unknown_candidates.setdefault(
+                        key,
+                        _new_detection_bucket(detection),
+                    )
+                    _add_detection(item, detection, message_id)
+
+                    # A single unknown sender is too noisy. Persist only when
+                    # the same domain has appeared in at least two messages.
+                    if item["count"] < UNKNOWN_MIN_MESSAGES:
+                        continue
+                    detections[key] = item
+                else:
+                    item = detections.setdefault(
+                        key,
+                        _new_detection_bucket(detection),
+                    )
+                    _add_detection(item, detection, message_id)
 
                 link = _persist_detection(session, account, item)
                 session.commit()
 
                 if detection_callback:
-                    detection_callback(
-                        {
-                            "account_id": account.id,
-                            "account_service_id": link.id,
-                            "account_email": account.email,
-                            "name": item["definition"]["name"],
-                            "service_id": item["definition"].get("name"),
-                            "category": item["definition"].get("category", "Autre"),
-                            "subcategory": item["definition"].get("subcategory"),
-                            "score": item["score"],
-                            "count": item["count"],
-                            "status": link.status or "À vérifier",
-                            "priority": link.priority or "Normale",
-                            "destination_email": link.destination_email,
-                            "notes": link.notes,
-                            "first_detected_at": link.first_detected_at,
-                            "last_detected_at": link.last_detected_at,
-                            "signals": sorted(item["signals"]),
-                        }
-                    )
+                    callback = _callback_data(account, item, link)
+                    callback["reliability"] = detection.reliability
+                    detection_callback(callback)
 
             if messages_scanned - last_persist >= 50:
                 session.commit()
