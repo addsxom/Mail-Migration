@@ -7,8 +7,12 @@ from app.scanner.catalog_index import CatalogIndex
 from app.scanner.scorer import calculate_score
 
 
+# Domains that should never become "unknown services". These are common
+# personal mailbox providers or infrastructure domains and do not represent
+# an external service the user needs to migrate.
 IGNORED_UNKNOWN_DOMAINS = {
-    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.fr", "hotmail.com",
+    "gmail.com", "googlemail.com", "google.com", "accounts.google.com",
+    "googleusercontent.com", "yahoo.com", "yahoo.fr", "hotmail.com",
     "hotmail.fr", "outlook.com", "outlook.fr", "live.com", "live.fr",
     "msn.com", "icloud.com", "me.com", "mac.com", "proton.me",
     "protonmail.com", "gmx.com", "gmx.ch", "bluewin.ch",
@@ -74,6 +78,28 @@ def _known_domain(domain, definitions):
     )
 
 
+def _readable_unknown_service_name(sender, domain):
+    """Build a human-readable service name for an uncatalogued sender.
+
+    Prefer the sender's display name (e.g. "NBA 2K") instead of exposing a
+    technical label such as "Domaine non catalogué — nba2k.com". If Gmail
+    provides no display name, derive a conservative name from the domain.
+    """
+    display_name = _sender_display_name(sender)
+    if display_name:
+        label = display_name
+    else:
+        host = domain.split(".", 1)[0] if domain else "Service inconnu"
+        label = re.sub(r"[-_]+", " ", host, flags=re.UNICODE)
+        label = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", label)
+        label = label.strip()
+        if label:
+            label = label[:1].upper() + label[1:]
+
+    label = re.sub(r"[^\w .&+\-]", "", label, flags=re.UNICODE).strip()
+    return (label[:120] or "Service inconnu").strip()
+
+
 def _unknown_detection(sender, domain, subject, definitions):
     """Return a low-confidence candidate for an unlisted service domain."""
     if not domain or domain in IGNORED_UNKNOWN_DOMAINS:
@@ -82,9 +108,7 @@ def _unknown_detection(sender, domain, subject, definitions):
         return None
 
     display_name = _sender_display_name(sender)
-    label = display_name or domain.split(".", 1)[0]
-    label = re.sub(r"[^\w .&+\-]", "", label, flags=re.UNICODE).strip()
-    label = label[:120] or domain
+    label = _readable_unknown_service_name(sender, domain)
 
     score = 30.0
     if display_name:
@@ -92,12 +116,12 @@ def _unknown_detection(sender, domain, subject, definitions):
     if subject and display_name and _contains_term(subject, display_name):
         score += 5.0
 
-    # Keep the readable sender/service name instead of prefixing it with
-    # "Inconnu —". The category still identifies it as an unknown candidate.
+    # The service column contains the readable name directly. We deliberately
+    # do not prefix it with "Inconnu —" or "Domaine non catalogué —".
     definition = {
         "name": label,
         "category": "Inconnu",
-        "subcategory": f"Domaine non catalogué — {domain}",
+        "subcategory": "Domaine non catalogué",
         "domains": [domain],
         "senders": [_sender_address(sender)] if _sender_address(sender) else [],
         "keywords": [display_name] if display_name else [],
