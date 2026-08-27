@@ -7,6 +7,32 @@ from app.scanner.catalog_index import CatalogIndex
 from app.scanner.scorer import calculate_score
 
 
+# These domains are mailbox providers or infrastructure, not useful service
+# candidates. This prevents the unknown detector from filling the inventory
+# with Gmail/Microsoft/Yahoo-style sender domains.
+IGNORED_UNKNOWN_DOMAINS = {
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "yahoo.fr",
+    "hotmail.com",
+    "hotmail.fr",
+    "outlook.com",
+    "outlook.fr",
+    "live.com",
+    "live.fr",
+    "msn.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "proton.me",
+    "protonmail.com",
+    "gmx.com",
+    "gmx.ch",
+    "bluewin.ch",
+}
+
+
 class Detection:
     def __init__(self, service, score, signals, reliability=None):
         self.service = service
@@ -35,7 +61,9 @@ def _sender_display_name(sender):
 
 def _domain_matches(message_domain, configured_domain):
     domain = _normalise(configured_domain)
-    return bool(message_domain) and (message_domain == domain or message_domain.endswith("." + domain))
+    return bool(message_domain) and (
+        message_domain == domain or message_domain.endswith("." + domain)
+    )
 
 
 def _contains_term(text, term):
@@ -53,14 +81,79 @@ def _sender_matches(sender, definition):
     configured = [_normalise(value) for value in definition.get("senders", []) if value]
     if address and address in configured:
         return True
-    return any("@" not in value and _contains_term(display_name, value) for value in configured)
+    return any(
+        "@" not in value and _contains_term(display_name, value)
+        for value in configured
+    )
+
+
+def _known_domain(domain, definitions):
+    return any(
+        _domain_matches(domain, configured)
+        for definition in definitions
+        for configured in definition.get("domains", [])
+    )
+
+
+def _unknown_detection(sender, domain, subject, definitions):
+    """Return a low-confidence candidate for an unlisted service domain.
+
+    Unknown candidates are intentionally conservative. They are persisted by
+    scanner.py only after the same domain has appeared in at least two messages.
+    This lets us discover services outside the catalog without turning every
+    newsletter or one-off sender into an inventory item.
+    """
+    if not domain or domain in IGNORED_UNKNOWN_DOMAINS:
+        return None
+    if _known_domain(domain, definitions):
+        return None
+
+    display_name = _sender_display_name(sender)
+    label = display_name or domain.split(".", 1)[0]
+    label = re.sub(r"[^\w .&+\-]", "", label, flags=re.UNICODE).strip()
+    if not label:
+        label = domain
+    label = label[:120]
+
+    score = 30.0
+    if display_name:
+        score += 5.0
+    if subject and display_name and _contains_term(subject, display_name):
+        score += 5.0
+
+    definition = {
+        "name": f"Inconnu — {domain}",
+        "category": "Inconnu",
+        "subcategory": "Domaine non catalogué",
+        "domains": [domain],
+        "senders": [_sender_address(sender)] if _sender_address(sender) else [],
+        "keywords": [display_name] if display_name else [],
+        "description": (
+            "Candidat détecté automatiquement à partir d'un domaine absent "
+            "du catalogue. Vérification manuelle recommandée."
+        ),
+        "unknown": True,
+    }
+    reliability = {
+        "official_domain": False,
+        "known_sender": False,
+        "authentication_available": False,
+        "spf": None,
+        "dkim": None,
+        "dmarc": None,
+    }
+    return Detection(definition, min(45.0, score), ["unknown_domain"], reliability)
 
 
 def detect_message(message, service_definitions=None, catalog_index=None):
-    """Detect catalog services and expose source-reliability details.
+    """Detect catalog services and cautious candidates outside the catalog.
 
-    Authentication-Results is treated as supporting context only. Its absence
-    is not evidence of fraud, and it does not alter the service score yet.
+    Known services use the normal weighted signals. Unknown domains are also
+    surfaced, but scanner.py requires two messages from the same domain before
+    saving the candidate to the inventory.
+
+    Authentication-Results is supporting context only. Its absence is not
+    evidence of fraud and does not lower a known service score.
     """
     headers = {
         h.get("name", "").casefold(): h.get("value", "")
@@ -68,6 +161,8 @@ def detect_message(message, service_definitions=None, catalog_index=None):
         if h.get("name")
     }
     sender = headers.get("from", "")
+    if not sender:
+        sender = headers.get("reply-to", "")
     subject = headers.get("subject", "")
     domain = _domain_from_sender(sender)
     auth_results = _normalise(headers.get("authentication-results", ""))
@@ -80,10 +175,18 @@ def detect_message(message, service_definitions=None, catalog_index=None):
 
     for definition in definitions:
         signals = []
-        domain_match = any(_domain_matches(domain, configured) for configured in definition.get("domains", []))
+        domain_match = any(
+            _domain_matches(domain, configured)
+            for configured in definition.get("domains", [])
+        )
         sender_match = _sender_matches(sender, definition)
-        subject_match = bool(definition.get("name")) and _contains_term(subject, definition["name"])
-        keyword_match = any(_contains_term(subject, keyword) for keyword in definition.get("keywords", []))
+        subject_match = bool(definition.get("name")) and _contains_term(
+            subject, definition["name"]
+        )
+        keyword_match = any(
+            _contains_term(subject, keyword)
+            for keyword in definition.get("keywords", [])
+        )
 
         if domain_match:
             signals.append("domain")
@@ -104,15 +207,25 @@ def detect_message(message, service_definitions=None, catalog_index=None):
             "official_domain": domain_match,
             "known_sender": sender_match,
         }
-        checks = [reliability[k] for k in ("spf", "dkim", "dmarc") if reliability[k] is not None]
+        checks = [
+            reliability[key]
+            for key in ("spf", "dkim", "dmarc")
+            if reliability[key] is not None
+        ]
         reliability["authentication_available"] = bool(checks)
         reliability["authentication_passed"] = bool(checks) and all(checks)
 
-        results.append(Detection(
-            definition,
-            calculate_score(signals),
-            signals,
-            reliability=reliability,
-        ))
+        results.append(
+            Detection(
+                definition,
+                calculate_score(signals),
+                signals,
+                reliability=reliability,
+            )
+        )
+
+    unknown = _unknown_detection(sender, domain, subject, definitions)
+    if unknown:
+        results.append(unknown)
 
     return sorted(results, key=lambda detection: detection.score, reverse=True)
