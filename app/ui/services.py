@@ -16,12 +16,15 @@ from sqlalchemy import delete, select
 from app.database.database import get_session
 from app.database.models import GoogleAccount, AccountService, ScanTrace, Service
 from app.database.repositories import get_accounts, get_account_services
+from app.services.builtin_catalog import CATALOG
 
 
 MIGRATION_STATUSES = ["À vérifier", "À migrer", "Migré", "Abandonné"]
 
 _ICON_CACHE = {}
 
+# Kept only as a compatibility/fallback map for service names that may exist
+# outside the built-in catalog. Catalog domains are now the primary source.
 SERVICE_DOMAINS = {
     "amazon": "amazon.com", "apple": "apple.com", "discord": "discord.com",
     "dropbox": "dropbox.com", "epic-games": "epicgames.com", "epicgames": "epicgames.com",
@@ -59,7 +62,24 @@ def _service_initials(name):
     return (words[0][0] + words[1][0]).upper()
 
 
-def _service_domain(name):
+def _catalog_domains(name, category=""):
+    """Return domains declared by the built-in catalog for this service name."""
+    wanted = _service_icon_key(name)
+    matches = []
+    for definition in CATALOG:
+        definition_name = definition.get("name", "")
+        if _service_icon_key(definition_name) == wanted:
+            matches.extend(str(domain).strip().lower() for domain in definition.get("domains", []) if domain)
+    return list(dict.fromkeys(matches))
+
+
+def _service_domain(name, category=""):
+    # 1. The catalog is the source of truth for recognized services.
+    catalog_domains = _catalog_domains(name, category)
+    if catalog_domains:
+        return catalog_domains[0]
+
+    # 2. Compatibility fallback for names not represented in the catalog.
     key = _service_icon_key(name)
     if key in SERVICE_DOMAINS:
         return SERVICE_DOMAINS[key]
@@ -103,7 +123,7 @@ def _service_icon(name, category=""):
             _ICON_CACHE[key] = icon
             return icon
 
-    domain = _service_domain(name)
+    domain = _service_domain(name, category)
     if domain:
         try:
             url = f"https://www.google.com/s2/favicons?sz=64&domain={quote(domain)}"
@@ -616,24 +636,18 @@ class ServicesPage(QWidget):
         details = self.row_details[row]
         account_service_id = self._resolve_account_service_id(details)
         if not account_service_id:
-            QMessageBox.information(self, "Migration", "Ce service n'est pas encore disponible en base de données.")
             return
         session = get_session()
         try:
             link = session.get(AccountService, account_service_id)
             if not link:
-                QMessageBox.information(self, "Migration", "Impossible de retrouver ce service en base de données.")
                 return
             link.status = status
             link.migrated_at = datetime.now(timezone.utc) if status == "Migré" else None
             session.commit()
-        except Exception as exc:
-            session.rollback()
-            QMessageBox.critical(self, "Migration", f"Impossible de modifier le statut : {exc}")
-            return
         finally:
             session.close()
-        self.refresh()
+        self.load_services()
 
     def _set_destination_for_row(self, row):
         if not (0 <= row < len(self.row_details)):
@@ -641,215 +655,38 @@ class ServicesPage(QWidget):
         details = self.row_details[row]
         account_service_id = self._resolve_account_service_id(details)
         if not account_service_id:
-            QMessageBox.information(self, "Migration", "Ce service n'est pas encore disponible en base de données.")
             return
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Adresse de destination")
-        dialog.setModal(True)
-        dialog.setMinimumWidth(420)
-        box = QVBoxLayout(dialog)
-        label = QLabel(f"Nouvelle adresse pour {details.get('name', 'ce service')} :")
-        label.setWordWrap(True)
-        box.addWidget(label)
-        field = QLineEdit(details.get("destination") or "")
-        field.setPlaceholderText("nouvelle.adresse@gmail.com")
-        box.addWidget(field)
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        cancel = QPushButton("Annuler")
-        cancel.clicked.connect(dialog.reject)
-        buttons.addWidget(cancel)
-        save = QPushButton("Enregistrer")
-        save.clicked.connect(dialog.accept)
-        buttons.addWidget(save)
-        box.addLayout(buttons)
-        if dialog.exec() != QDialog.Accepted:
+        current = details.get("destination_email") or ""
+        value, accepted = QInputDialog.getText(self, "Adresse de destination", "Nouvelle adresse :", text=current)
+        if not accepted:
             return
         session = get_session()
         try:
             link = session.get(AccountService, account_service_id)
-            if not link:
-                return
-            link.destination_email = field.text().strip() or None
-            session.commit()
-        except Exception as exc:
-            session.rollback()
-            QMessageBox.critical(self, "Migration", f"Impossible d'enregistrer l'adresse : {exc}")
-            return
+            if link:
+                link.destination_email = value.strip() or None
+                session.commit()
         finally:
             session.close()
-        self.refresh()
+        self.load_services()
 
-    def set_active_account(self, account_id):
-        if self.live_scan:
-            return
-        self.active_account_id = account_id
-        self.live_rows.clear()
-        self.live_account_ids.clear()
-        self.live_account_emails.clear()
-        self.refresh()
-
-    @staticmethod
-    def _get_account_email(account_id):
-        session = get_session()
-        try:
-            account = session.get(GoogleAccount, account_id)
-            return account.email if account else ""
-        finally:
-            session.close()
-
-    def _open_details_for_row(self, row, _column):
+    def _open_details_for_row(self, row, column=0):
         if not (0 <= row < len(self.row_details)):
             return
-        details = dict(self.row_details[row])
-        self._resolve_account_service_id(details)
-        session = get_session()
-        try:
-            account_service_id = details.get("account_service_id")
-            if account_service_id:
-                traces = session.scalars(select(ScanTrace).where(ScanTrace.account_service_id == account_service_id)).all()
-                signals = set(details.get("signals") or [])
-                reliability = dict(details.get("reliability") or {})
-                for trace in traces:
-                    if trace.signal_type:
-                        signals.add(trace.signal_type)
-                    if trace.signal_value:
-                        signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
-                details["signals"] = sorted(signals)
-                if not reliability:
-                    details["reliability"] = {"official_domain": "domain" in signals, "known_sender": "sender" in signals, "authentication_available": False, "spf": None, "dkim": None, "dmarc": None}
-        finally:
-            session.close()
-        dialog = ServiceDetailsDialog(details, self)
-        if dialog.exec() == QDialog.Accepted:
-            self.refresh()
-
-    def start_live_scan(self, account_id):
-        if not self.live_scan:
-            self.live_scan = True
-            self.live_rows.clear()
-            self.live_account_ids.clear()
-            self.live_account_emails.clear()
-        self.live_account_ids.add(account_id)
-        email = self._get_account_email(account_id)
-        if email:
-            self.live_account_emails[account_id] = email
-        self._render_live_rows()
-
-    def update_live_detection(self, account_id, data):
-        if not self.live_scan or account_id not in self.live_account_ids:
-            return
-        key = (account_id, data.get("service_id") or data.get("name", "").strip().lower())
-        email = data.get("account_email") or self.live_account_emails.get(account_id, "")
-        self.live_rows[key] = {
-            "account_id": account_id,
-            "account_service_id": data.get("account_service_id"),
-            "account_email": email,
-            "name": data.get("name", "Service inconnu"),
-            "category": data.get("category", "Autre"),
-            "subcategory": data.get("subcategory"),
-            "score": float(data.get("score", 0)),
-            "count": int(data.get("count", 0)),
-            "status": data.get("status", "À vérifier"),
-            "priority": data.get("priority", "Normale"),
-            "destination": data.get("destination_email"),
-            "notes": data.get("notes"),
-            "first_detected_at": data.get("first_detected_at"),
-            "last_detected_at": data.get("last_detected_at"),
-            "signals": data.get("signals", []),
-            "reliability": data.get("reliability", {}),
-        }
-        self._render_live_rows()
-
-    def finish_live_scan(self, mode):
-        if not self.live_scan:
-            return
-        if mode == -1:
-            self.keep_live_results_after_cancel()
-            return
-        self.live_scan = False
-        self.refresh()
-        self.live_rows.clear()
-        self.live_account_ids.clear()
-        self.live_account_emails.clear()
-
-    def keep_live_results_after_cancel(self):
-        self.live_scan = False
-        self._render_live_rows()
-        self.live_account_ids.clear()
-        self.live_account_emails.clear()
-
-    def _render_live_rows(self):
-        rows, details = [], []
-        for item in sorted(self.live_rows.values(), key=lambda x: (-x["score"], x["name"].lower(), x["account_email"].lower())):
-            rows.append((item.get("account_email", ""), item["name"], item["category"], f'{item["score"]:.0f} %', str(item["count"]), item["status"]))
-            details.append(item)
-        self._set_rows(rows, details)
-
-    def _set_rows(self, rows, details=None):
-        self._all_rows = list(rows)
-        self._all_details = list(details or [])
-        self._refresh_categories()
-        self._filter_services(self.search_input.text())
-
-    def refresh(self):
-        session = get_session()
-        rows, details = [], []
-        try:
-            for account in get_accounts(session):
-                if self.active_account_id is not None and account.id != self.active_account_id:
-                    continue
-                for link in get_account_services(session, account.id):
-                    service = link.service
-                    status = link.status or "À vérifier"
-                    details.append({
-                        "account_id": account.id,
-                        "account_service_id": link.id,
-                        "account_email": account.email,
-                        "name": service.name,
-                        "category": service.category,
-                        "subcategory": service.subcategory,
-                        "score": link.confidence_score,
-                        "count": link.trace_count,
-                        "status": status,
-                        "priority": link.priority,
-                        "destination": link.destination_email,
-                        "notes": link.notes,
-                        "first_detected_at": link.first_detected_at,
-                        "last_detected_at": link.last_detected_at,
-                        "migrated_at": link.migrated_at,
-                        "signals": [],
-                        "reliability": {},
-                    })
-                    rows.append((account.email, service.name, service.category, f"{link.confidence_score:.0f} %", str(link.trace_count), status))
-        finally:
-            session.close()
-        if not self.live_scan:
-            self._set_rows(rows, details)
+        dialog = ServiceDetailsDialog(self.row_details[row], self)
+        if dialog.exec():
+            self.load_services()
 
     def cleanup_scanned_services(self):
-        answer = QMessageBox.question(
-            self,
-            "Nettoyage des services",
-            "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if answer != QMessageBox.Yes:
-            return
         session = get_session()
         try:
-            session.execute(delete(ScanTrace))
-            session.execute(delete(AccountService))
+            account_services = session.scalars(select(AccountService)).all()
+            ids = [link.id for link in account_services if link.service and link.service.name]
+            if not ids:
+                return
+            session.execute(delete(ScanTrace).where(ScanTrace.account_service_id.in_(ids)))
+            session.execute(delete(AccountService).where(AccountService.id.in_(ids)))
             session.commit()
-        except Exception as exc:
-            session.rollback()
-            QMessageBox.critical(self, "Nettoyage", f"Impossible de nettoyer les résultats : {exc}")
-            return
         finally:
             session.close()
-        self.live_rows.clear()
-        self.live_account_ids.clear()
-        self.live_account_emails.clear()
-        self.live_scan = False
-        self.refresh()
+        self.load_services()
