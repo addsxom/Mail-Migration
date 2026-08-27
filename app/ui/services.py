@@ -5,14 +5,16 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 from PySide6.QtCore import Qt, QRectF, QSize
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QFontMetrics, QIcon, QPixmap, QFont
-from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QStyledItemDelegate, QMenu, QTextEdit
+from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QStyledItemDelegate, QMenu, QTextEdit, QInputDialog
 from sqlalchemy import delete, select
 from app.database.database import get_session
 from app.database.models import GoogleAccount, AccountService, ScanTrace
 from app.database.repositories import get_accounts, get_account_services
+
 MIGRATION_STATUSES=["À vérifier","À migrer","Migré","Abandonné"]
 _ICON_CACHE={}
 SERVICE_DOMAINS={"amazon":"amazon.com","apple":"apple.com","discord":"discord.com","dropbox":"dropbox.com","epic-games":"epicgames.com","epicgames":"epicgames.com","facebook":"facebook.com","google":"google.com","google-drive":"drive.google.com","instagram":"instagram.com","linkedin":"linkedin.com","microsoft":"microsoft.com","microsoft-365":"microsoft.com","netflix":"netflix.com","nintendo":"nintendo.com","nintendo-switch":"nintendo.com","paypal":"paypal.com","playstation":"playstation.com","reddit":"reddit.com","roblox":"roblox.com","samsung":"samsung.com","spotify":"spotify.com","steam":"steampowered.com","tiktok":"tiktok.com","twitch":"twitch.tv","twitter":"x.com","x":"x.com","ubisoft":"ubisoft.com","xbox":"xbox.com","youtube":"youtube.com","yahoo":"yahoo.com","airbnb":"airbnb.com","adobe":"adobe.com","canva":"canva.com","github":"github.com","gitlab":"gitlab.com","nvidia":"nvidia.com","ea":"ea.com","ea-games":"ea.com","battle-net":"battle.net","blizzard":"blizzard.com","riot-games":"riotgames.com","valorant":"playvalorant.com","2k":"2k.com","nba-2k":"nba.2k.com","take-two":"taketwointeractivesoftware.com","snapchat":"snapchat.com","telegram":"telegram.org","whatsapp":"whatsapp.com","aliexpress":"aliexpress.com","zalando":"zalando.ch","digitec":"digitec.ch","galaxus":"galaxus.ch","ricardo":"ricardo.ch","swisscom":"swisscom.ch","sunrise":"sunrise.ch","salt":"salt.ch"}
+
 def _service_icon_key(name): return re.sub(r"[^a-z0-9]+","-",str(name or "service").strip().lower()).strip("-") or "service"
 def _service_initials(name):
     words=[w for w in re.split(r"\s+",str(name or "Service").strip()) if w]
@@ -54,6 +56,7 @@ def _service_icon(name,category=""):
             if pix.loadFromData(data): icon=QIcon(pix); _ICON_CACHE[key]=icon; return icon
         except Exception:pass
     icon=_fallback_service_icon(name); _ICON_CACHE[key]=icon; return icon
+
 class ServiceDetailsDialog(QDialog):
     def __init__(self,details,parent=None):
         super().__init__(parent); self.details=details; self.account_service_id=details.get("account_service_id"); self.setWindowTitle(f"Détails — {details.get('name','Service')}"); self.setModal(True); self.setMinimumWidth(600); self.setMaximumWidth(760)
@@ -78,6 +81,7 @@ class ServiceDetailsDialog(QDialog):
     def _format_score_breakdown(s):return ""
     @staticmethod
     def _format_reliability(r):return ""
+
 class ServiceTableDelegate(QStyledItemDelegate):
     ICON_SIZE=28; ICON_LEFT_PADDING=12; ICON_TEXT_GAP=8; TEXT_RIGHT_PADDING=12
     def paint(self,painter,option,index):
@@ -91,17 +95,28 @@ class ServiceTableDelegate(QStyledItemDelegate):
             else:rect=option.rect.adjusted(self.ICON_LEFT_PADDING,0,-self.TEXT_RIGHT_PADDING,0)
             painter.drawText(rect,Qt.AlignVCenter|Qt.AlignHCenter,metrics.elidedText(str(text),Qt.ElideRight,max(0,rect.width())))
         painter.restore()
+
 class ServiceTable(QTableWidget):
-    def paintEvent(self,event):super().paintEvent(event)
+    def paintEvent(self,event):
+        painter=QPainter(self.viewport()); painter.setRenderHint(QPainter.Antialiasing,True)
+        for row in range(self.rowCount()):
+            y=self.rowViewportPosition(row); h=self.rowHeight(row)
+            if y>self.viewport().height() or y+h<0:continue
+            rect=QRectF(5,y+4,max(0.0,self.viewport().width()-10),max(0.0,h-8)); path=QPainterPath(); path.addRoundedRect(rect,11,11); painter.fillPath(path,QColor(29,34,43))
+        painter.end(); super().paintEvent(event)
+
 class ServicesPage(QWidget):
     def __init__(self):
         super().__init__(); self.active_account_id=None; self.live_scan=False; self.live_account_ids=set(); self.live_rows={}; self.live_account_emails={}; self._all_rows=[]; self._all_details=[]; self.row_details=[]; self._status_filters=set(); self._category_filter="Toutes les catégories"
-        layout=QVBoxLayout(self); title=QLabel("Inventaire des services"); title.setObjectName("title"); layout.addWidget(title); search=QLineEdit(); search.setPlaceholderText("Rechercher un service, compte ou catégorie..."); search.textChanged.connect(self._filter_services); self.search_input=search; layout.addWidget(search)
+        layout=QVBoxLayout(self); title=QLabel("Inventaire des services"); title.setObjectName("title"); layout.addWidget(title)
+        search_container=QFrame(); search_container.setObjectName("serviceSearchContainer"); search_container.setStyleSheet("QFrame#serviceSearchContainer{border:1px solid #303846;border-radius:10px;background:#171b22;} QFrame#serviceSearchContainer:focus-within{border:1px solid #58677d;} QLabel#serviceSearchIcon{border:none;background:transparent;padding-left:12px;padding-right:4px;font-size:17px;} QLineEdit#serviceSearchInput{border:none;background:transparent;padding:0 10px 0 4px;color:#E7EAF0;} QLineEdit#serviceSearchInput:focus{border:none;}")
+        search_layout=QHBoxLayout(search_container); search_layout.setContentsMargins(0,0,0,0); search_layout.setSpacing(0); search_icon=QLabel("🔎"); search_icon.setObjectName("serviceSearchIcon"); search_icon.setAlignment(Qt.AlignCenter); search_layout.addWidget(search_icon)
+        search=QLineEdit(); search.setObjectName("serviceSearchInput"); search.setPlaceholderText("Rechercher un service, compte ou catégorie..."); search.setClearButtonEnabled(True); search.setMinimumHeight(38); search.textChanged.connect(self._filter_services); self.search_input=search; search_layout.addWidget(search,1); layout.addWidget(search_container)
         actions=QHBoxLayout(); self.status_buttons={}
         for status in MIGRATION_STATUSES:
             b=QPushButton(status); b.setCheckable(True); b.clicked.connect(lambda checked,value=status:self._toggle_status_filter(value,checked)); self.status_buttons[status]=b; actions.addWidget(b)
         actions.addStretch(); self.category_combo=QComboBox(); self.category_combo.addItem("Toutes les catégories"); self.category_combo.currentTextChanged.connect(self._set_category_filter); actions.addWidget(self.category_combo); self.cleanup_button=QPushButton("🧹 Nettoyage"); self.cleanup_button.clicked.connect(self.cleanup_scanned_services); actions.addWidget(self.cleanup_button); layout.addLayout(actions)
-        self.table=ServiceTable(0,6); self.table.setHorizontalHeaderLabels(["Compte","Service","Catégorie","Confiance","Traces","Statut"]); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.table.verticalHeader().setVisible(False); self.table.verticalHeader().setDefaultSectionSize(54); self.table.setIconSize(QSize(28,28)); self.table.setSelectionMode(QTableWidget.NoSelection); self.table.setEditTriggers(QTableWidget.NoEditTriggers); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.customContextMenuRequested.connect(self._show_service_context_menu); self.table.setItemDelegate(ServiceTableDelegate(self.table)); layout.addWidget(self.table)
+        self.table=ServiceTable(0,6); self.table.setHorizontalHeaderLabels(["Compte","Service","Catégorie","Confiance","Traces","Statut"]); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.table.verticalHeader().setVisible(False); self.table.verticalHeader().setDefaultSectionSize(54); self.table.setIconSize(QSize(28,28)); self.table.setSelectionMode(QTableWidget.NoSelection); self.table.setEditTriggers(QTableWidget.NoEditTriggers); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.customContextMenuRequested.connect(self._show_service_context_menu); self.table.setItemDelegate(ServiceTableDelegate(self.table)); self.table.setStyleSheet("QTableWidget{background:transparent;border:none;gridline-color:transparent;color:#E7EAF0;outline:none;} QTableWidget::item{background:transparent;border:none;color:#E7EAF0;padding:0;} QTableWidget::item:selected,QTableWidget::item:focus{background:transparent;border:none;outline:none;}"); layout.addWidget(self.table)
     def _toggle_status_filter(self,s,c):
         if c:self._status_filters.add(s)
         else:self._status_filters.discard(s)
@@ -120,6 +135,7 @@ class ServicesPage(QWidget):
                 item=QTableWidgetItem(str(value)); item.setTextAlignment(Qt.AlignCenter|Qt.AlignVCenter)
                 if c==1:item.setIcon(_service_icon(details[r].get("name"),details[r].get("category")))
                 self.table.setItem(r,c,item)
+        self.table.viewport().update()
     def _refresh_categories(self):
         cats=sorted({str(d.get("category") or "Autre") for d in self._all_details},key=str.casefold); current=self._category_filter; self.category_combo.blockSignals(True); self.category_combo.clear(); self.category_combo.addItem("Toutes les catégories"); self.category_combo.addItems(cats); self.category_combo.setCurrentText(current if current in cats else "Toutes les catégories"); self._category_filter=self.category_combo.currentText(); self.category_combo.blockSignals(False)
     def _show_service_context_menu(self,position):
