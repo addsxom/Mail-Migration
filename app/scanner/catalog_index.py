@@ -1,6 +1,7 @@
 """Indexes the built-in service catalog for fast message detection."""
 
 from collections import defaultdict
+from email.utils import parseaddr
 
 from app.services.builtin_catalog import CATALOG
 
@@ -9,19 +10,27 @@ def _norm(value):
     return (value or "").strip().casefold()
 
 
+def _sender_address(sender):
+    return parseaddr(sender or "")[1].casefold().strip()
+
+
 def _sender_domain(sender):
-    sender = _norm(sender)
-    if "@" not in sender:
+    address = _sender_address(sender)
+    if "@" not in address:
         return ""
-    return sender.rsplit("@", 1)[1]
+    return address.rsplit("@", 1)[1]
+
+
+def _sender_display_name(sender):
+    return _norm(parseaddr(sender or "")[0])
 
 
 class CatalogIndex:
     """Fast candidate lookup for catalog definitions.
 
-    The index supports optional aliases and sender display names while keeping
-    the actual verification in detector.py. Domain candidates also include
-    subdomains, e.g. mail.example.com -> example.com.
+    Gmail's From header commonly contains a display name, for example:
+    ``eBay <notification@ebay.com>``. The index normalises that format before
+    looking up domains and senders so catalog entries are not missed.
     """
 
     def __init__(self, definitions=None):
@@ -64,34 +73,33 @@ class CatalogIndex:
                 self.by_name[name].append(definition)
 
     def candidates(self, sender="", subject=""):
-        sender_norm = _norm(sender)
-        domain = _sender_domain(sender_norm)
+        sender_address = _sender_address(sender)
+        domain = _sender_domain(sender)
         subject_norm = _norm(subject)
-        display_name = ""
-        if "<" in sender_norm:
-            display_name = sender_norm.split("<", 1)[0].strip().strip('"')
+        display_name = _sender_display_name(sender)
 
         found = {}
 
+        # Primary lookup: exact sender domain.
         for definition in self.by_domain.get(domain, []):
             found[id(definition)] = definition
 
-        # Subdomains are valid candidates too (e.g. txn.example.com).
+        # Subdomains are valid candidates too (e.g. mail.example.com).
         if domain:
-            for configured_domain, definitions in self.domain_entries:
-                if domain.endswith("." + configured_domain):
-                    for definition in definitions if isinstance(definitions, list) else [definitions]:
-                        found[id(definition)] = definition
-
-        for definition in self.by_sender.get(sender_norm, []):
-            found[id(definition)] = definition
-        for name, definitions in self.by_sender_name.items():
-            if name and name in display_name:
-                for definition in definitions:
+            for configured_domain, definition in self.domain_entries:
+                if domain == configured_domain or domain.endswith("." + configured_domain):
                     found[id(definition)] = definition
 
-        # Candidate lookup intentionally remains cheap; final word-boundary
-        # verification happens in detector.py.
+        # Exact sender address and optional display-name sender rules.
+        for definition in self.by_sender.get(sender_address, []):
+            found[id(definition)] = definition
+        if display_name:
+            for name, definitions in self.by_sender_name.items():
+                if name and name in display_name:
+                    for definition in definitions:
+                        found[id(definition)] = definition
+
+        # Subject/name/keyword candidates.
         for token, definitions in self.by_keyword.items():
             if token in subject_norm:
                 for definition in definitions:
