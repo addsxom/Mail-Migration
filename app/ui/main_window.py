@@ -1,5 +1,6 @@
 import sys
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel
@@ -10,6 +11,7 @@ from app.core.logger import setup_logging
 from app.database.database import init_db
 from .dashboard import DashboardPage
 from .accounts import AccountsPage
+from . import services as services_module
 from .services import ServicesPage
 
 
@@ -40,6 +42,61 @@ QLabel#muted {
     color: #9AA2AF;
 }
 """
+
+
+_CIRCULAR_ICON_CACHE = {}
+_original_service_icon = services_module._service_icon
+
+
+def _make_circular_icon(icon):
+    """Place any service logo inside a consistent circular mask."""
+    if not isinstance(icon, QIcon) or icon.isNull():
+        return icon
+
+    cache_key = id(icon)
+    cached = _CIRCULAR_ICON_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    size = 64
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+    circle = QPainterPath()
+    circle.addEllipse(1, 1, size - 2, size - 2)
+    painter.setClipPath(circle)
+
+    painter.fillPath(circle, QColor(29, 34, 43))
+
+    source = icon.pixmap(size - 12, size - 12)
+    if not source.isNull():
+        target = source.scaled(
+            size - 12,
+            size - 12,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        x = (size - target.width()) // 2
+        y = (size - target.height()) // 2
+        painter.drawPixmap(x, y, target)
+
+    painter.end()
+
+    circular = QIcon(pixmap)
+    _CIRCULAR_ICON_CACHE[cache_key] = circular
+    return circular
+
+
+def _circular_service_icon(name, category=""):
+    return _make_circular_icon(_original_service_icon(name, category))
+
+
+# Keep the existing service/icon system, but normalize every displayed logo to a circle.
+services_module._service_icon = _circular_service_icon
 
 
 class MainWindow(QMainWindow):
