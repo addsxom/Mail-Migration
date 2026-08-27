@@ -57,11 +57,34 @@ Le moteur combine plusieurs indices :
 
 ### Services absents du catalogue
 
-Le scanner peut aussi repérer des **candidats inconnus**. Lorsqu'un domaine non catalogué apparaît plusieurs fois, il peut être ajouté à l'inventaire sous la forme `Inconnu — domaine.tld`, avec une confiance volontairement basse et le statut `À vérifier`.
+Le scanner peut aussi repérer des candidats hors catalogue. Lorsqu'un domaine non catalogué apparaît plusieurs fois, il est ajouté à l'inventaire avec le **nom lisible de l'expéditeur** lorsqu'il est disponible. Le mot `Inconnu` n'est plus ajouté devant le nom, afin que l'inventaire reste lisible. La catégorie reste `Inconnu` et le domaine est conservé dans la sous-catégorie pour permettre la vérification.
 
 Un seul email provenant d'un domaine inconnu n'est pas enregistré comme service afin d'éviter que les newsletters et expéditeurs ponctuels remplissent l'inventaire.
 
 Le système ignore également plusieurs fournisseurs de messagerie personnels courants (`gmail.com`, `outlook.com`, `icloud.com`, etc.) pour éviter les faux candidats.
+
+## Catalogue intégré
+
+Le catalogue intégré a été élargi avec davantage de services dans les domaines :
+
+- jeux et plateformes ;
+- streaming ;
+- shopping ;
+- réseaux sociaux et communication ;
+- finance et paiements ;
+- cloud et développement ;
+- productivité et sécurité ;
+- voyage, transport et livraison ;
+- télécom et services suisses ;
+- assurances ;
+- emploi et services professionnels ;
+- applications et IA.
+
+Le catalogue reste une aide à la détection et non une liste fermée : les domaines récurrents qui n'y figurent pas peuvent toujours remonter comme candidats hors catalogue.
+
+## Logos des services
+
+La base de données possède déjà un champ `logo` pour les services. L'interface pourra utiliser les favicons des domaines enregistrés à côté du nom du service. Cette intégration visuelle est volontairement séparée du moteur de détection afin de ne pas rendre la détection dépendante d'un service externe.
 
 ## Personnaliser le catalogue
 
@@ -78,12 +101,12 @@ Les définitions sont dans `app/services/builtin_catalog.py`. Une définition pe
 }
 ```
 
-Les `aliases` sont désormais pris en charge par l'index de détection, même si le catalogue actuel n'en utilise pas encore partout.
+Les `aliases` sont pris en charge par l'index de détection.
 
 ## Phase actuelle
 
-La phase Catalogue / Détection est en cours de finalisation. Le moteur sait maintenant identifier les services connus avec plusieurs signaux et faire remonter prudemment des domaines inconnus récurrents. L'objectif est de terminer les réglages de précision avant de passer à une nouvelle grosse fonctionnalité.
+La phase Catalogue / Détection est en cours de finalisation. Le moteur sait identifier les services connus avec plusieurs signaux, faire remonter prudemment des domaines inconnus récurrents et utiliser un catalogue nettement plus large. La priorité reste maintenant la précision et la lisibilité avant d'ajouter une nouvelle grosse fonctionnalité.
 
 ## Limites
 
-Le scanner utilise les métadonnées Gmail et ne prétend pas déterminer avec certitude qu'un compte externe existe. Un score élevé signifie seulement que plusieurs indices concordent. Les candidats inconnus sont volontairement conservateurs et doivent être vérifiés manuellement.
+Le scanner utilise les métadonnées Gmail et ne prétend pas déterminer avec certitude qu'un compte externe existe. Un score élevé signifie seulement que plusieurs indices concordent. Les candidats hors catalogue sont volontairement conservateurs et doivent être vérifiés manuellement.
