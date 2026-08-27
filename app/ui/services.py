@@ -3,21 +3,9 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QFontMetrics
 from PySide6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QGridLayout,
-    QHeaderView,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QHBoxLayout,
-    QWidget,
-    QLineEdit,
-    QStyledItemDelegate,
-    QMenu,
+    QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
+    QWidget, QLineEdit, QStyledItemDelegate, QMenu,
 )
 from sqlalchemy import delete, select
 
@@ -33,46 +21,32 @@ class ServiceDetailsDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(540)
         self.setMaximumWidth(700)
-
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
-
         card = QFrame()
         card.setObjectName("serviceDetailsCard")
         card.setStyleSheet("""
-            QFrame#serviceDetailsCard {
-                border: 1px solid #303846;
-                border-radius: 14px;
-                background: #171b22;
-            }
-            QLabel#serviceDetailsTitle {
-                font-size: 22px;
-                font-weight: 700;
-            }
+            QFrame#serviceDetailsCard { border: 1px solid #303846; border-radius: 14px; background: #171b22; }
+            QLabel#serviceDetailsTitle { font-size: 22px; font-weight: 700; }
             QLabel#serviceDetailsSubtitle { color: #9AA2AF; }
             QLabel.detailLabel { color: #9AA2AF; font-size: 12px; }
             QLabel.signalValue { color: #E7EAF0; }
             QLabel.scoreValue { font-size: 18px; font-weight: 700; }
             QPushButton { padding: 8px 16px; border-radius: 8px; }
         """)
-
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(18, 18, 18, 18)
         card_layout.setSpacing(14)
-
         title = QLabel(details.get("name", "Service"))
         title.setObjectName("serviceDetailsTitle")
         card_layout.addWidget(title)
-
         subtitle = QLabel(details.get("category", "Autre"))
         subtitle.setObjectName("serviceDetailsSubtitle")
         card_layout.addWidget(subtitle)
-
         grid = QGridLayout()
         grid.setHorizontalSpacing(18)
         grid.setVerticalSpacing(10)
-
         fields = [
             ("Compte Gmail", details.get("account_email", "—")),
             ("Confiance", self._format_score(details.get("score"))),
@@ -85,7 +59,6 @@ class ServiceDetailsDialog(QDialog):
             ("Sous-catégorie", details.get("subcategory", "—")),
             ("Notes", details.get("notes", "—")),
         ]
-
         for row, (label_text, value_text) in enumerate(fields):
             label = QLabel(label_text)
             label.setProperty("class", "detailLabel")
@@ -96,7 +69,6 @@ class ServiceDetailsDialog(QDialog):
                 value.setObjectName("scoreValue")
             grid.addWidget(label, row, 0, Qt.AlignTop)
             grid.addWidget(value, row, 1)
-
         row = len(fields)
         signal_label = QLabel("Signaux de détection")
         signal_label.setProperty("class", "detailLabel")
@@ -105,7 +77,6 @@ class ServiceDetailsDialog(QDialog):
         signal_value.setWordWrap(True)
         grid.addWidget(signal_label, row, 0, Qt.AlignTop)
         grid.addWidget(signal_value, row, 1)
-
         row += 1
         score_label = QLabel("Détail du score")
         score_label.setProperty("class", "detailLabel")
@@ -114,7 +85,6 @@ class ServiceDetailsDialog(QDialog):
         score_value.setWordWrap(True)
         grid.addWidget(score_label, row, 0, Qt.AlignTop)
         grid.addWidget(score_value, row, 1)
-
         row += 1
         reliability_label = QLabel("Fiabilité de la source")
         reliability_label.setProperty("class", "detailLabel")
@@ -123,10 +93,8 @@ class ServiceDetailsDialog(QDialog):
         reliability_value.setWordWrap(True)
         grid.addWidget(reliability_label, row, 0, Qt.AlignTop)
         grid.addWidget(reliability_value, row, 1)
-
         card_layout.addLayout(grid)
         root.addWidget(card)
-
         close_button = QPushButton("Fermer")
         close_button.clicked.connect(self.accept)
         root.addWidget(close_button, 0, Qt.AlignRight)
@@ -176,66 +144,38 @@ class ServiceDetailsDialog(QDialog):
     def _format_reliability(reliability):
         if not reliability:
             return "Aucune information de fiabilité disponible"
-
         lines = [
             "✓ Domaine officiel" if reliability.get("official_domain") else "✗ Domaine officiel non confirmé",
             "✓ Expéditeur connu" if reliability.get("known_sender") else "✗ Expéditeur non reconnu",
             "",
             "Authentification",
         ]
-
         if not reliability.get("authentication_available"):
-            lines.extend([
-                "○ SPF — non disponible",
-                "○ DKIM — non disponible",
-                "○ DMARC — non disponible",
-            ])
+            lines.extend(["○ SPF — non disponible", "○ DKIM — non disponible", "○ DMARC — non disponible"])
         else:
             for key, label in (("spf", "SPF"), ("dkim", "DKIM"), ("dmarc", "DMARC")):
                 value = reliability.get(key)
                 lines.append(f"{'✓' if value else '✗'} {label} — {'pass' if value else 'échec'}")
-
         return "\n".join(lines)
 
 
 class ServiceTableDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         table = self.parent()
-
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
-
         if index.column() == 0:
-            row_rect = QRectF(
-                4,
-                option.rect.top() + 5,
-                max(0.0, table.viewport().width() - 8),
-                max(0.0, option.rect.height() - 10),
-            )
+            row_rect = QRectF(4, option.rect.top() + 5, max(0.0, table.viewport().width() - 8), max(0.0, option.rect.height() - 10))
             path = QPainterPath()
             path.addRoundedRect(row_rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
-
         text = index.data(Qt.DisplayRole)
-
         if text is not None:
             text_rect = option.rect.adjusted(10, 0, -10, 0)
             painter.setPen(QColor(231, 234, 240))
             painter.setFont(option.font)
-
-            metrics = QFontMetrics(option.font)
-            display_text = metrics.elidedText(
-                str(text),
-                Qt.ElideRight,
-                max(0, text_rect.width()),
-            )
-
-            painter.drawText(
-                text_rect,
-                Qt.AlignVCenter | Qt.AlignLeft,
-                display_text,
-            )
-
+            display_text = QFontMetrics(option.font).elidedText(str(text), Qt.ElideRight, max(0, text_rect.width()))
+            painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignHCenter, display_text)
         painter.restore()
 
 
@@ -243,12 +183,10 @@ class ServiceTable(QTableWidget):
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.Antialiasing, True)
-
         bg = QColor(29, 34, 43)
         first_row = self.rowAt(0)
         if first_row < 0:
             first_row = 0
-
         for row in range(first_row, self.rowCount()):
             y = self.rowViewportPosition(row)
             height = self.rowHeight(row)
@@ -256,17 +194,10 @@ class ServiceTable(QTableWidget):
                 break
             if y + height < 0:
                 continue
-
-            rect = QRectF(
-                4,
-                y + 5,
-                max(0.0, self.viewport().width() - 8),
-                max(0.0, height - 10),
-            )
+            rect = QRectF(4, y + 5, max(0.0, self.viewport().width() - 8), max(0.0, height - 10))
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, bg)
-
         painter.end()
         super().paintEvent(event)
 
@@ -282,17 +213,13 @@ class ServicesPage(QWidget):
         self.live_account_emails = {}
         self._all_rows = []
         self._all_details = []
-
         layout = QVBoxLayout(self)
-
         title = QLabel("Inventaire des services")
         title.setObjectName("title")
         layout.addWidget(title)
-
         self.account_label = QLabel("Tous les comptes")
         self.account_label.setObjectName("muted")
         layout.addWidget(self.account_label)
-
         self.scan_label = QLabel("")
         self.scan_label.setObjectName("muted")
         layout.addWidget(self.scan_label)
@@ -300,42 +227,19 @@ class ServicesPage(QWidget):
         search_container = QFrame()
         search_container.setObjectName("serviceSearchContainer")
         search_container.setStyleSheet("""
-            QFrame#serviceSearchContainer {
-                border: 1px solid #303846;
-                border-radius: 10px;
-                background: #171b22;
-            }
-            QFrame#serviceSearchContainer:focus-within {
-                border: 1px solid #58677d;
-            }
-            QLabel#serviceSearchIcon {
-                border: none;
-                background: transparent;
-                padding-left: 12px;
-                padding-right: 4px;
-                font-size: 17px;
-            }
-            QLineEdit#serviceSearchInput {
-                border: none;
-                background: transparent;
-                padding: 0 10px 0 4px;
-                color: #E7EAF0;
-            }
-            QLineEdit#serviceSearchInput:hover,
-            QLineEdit#serviceSearchInput:focus {
-                color: #E7EAF0;
-            }
+            QFrame#serviceSearchContainer { border: 1px solid #303846; border-radius: 10px; background: #171b22; }
+            QFrame#serviceSearchContainer:focus-within { border: 1px solid #58677d; }
+            QLabel#serviceSearchIcon { border: none; background: transparent; padding-left: 12px; padding-right: 4px; font-size: 17px; }
+            QLineEdit#serviceSearchInput { border: none; background: transparent; padding: 0 10px 0 4px; color: #E7EAF0; }
+            QLineEdit#serviceSearchInput:hover, QLineEdit#serviceSearchInput:focus { color: #E7EAF0; }
         """)
-
         search_layout = QHBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(0)
-
         search_icon = QLabel("🔎")
         search_icon.setObjectName("serviceSearchIcon")
         search_icon.setAlignment(Qt.AlignCenter)
         search_layout.addWidget(search_icon)
-
         self.search_input = QLineEdit()
         self.search_input.setObjectName("serviceSearchInput")
         self.search_input.setPlaceholderText("Rechercher un service, compte ou catégorie...")
@@ -347,7 +251,6 @@ class ServicesPage(QWidget):
 
         actions = QHBoxLayout()
         actions.addStretch()
-
         self.cleanup_button = QPushButton("🧹 Nettoyage")
         self.cleanup_button.setToolTip("Supprimer les résultats issus des scans")
         self.cleanup_button.clicked.connect(self.cleanup_scanned_services)
@@ -355,15 +258,14 @@ class ServicesPage(QWidget):
         layout.addLayout(actions)
 
         self.table = ServiceTable(0, 6)
-        self.table.setHorizontalHeaderLabels([
-            "Compte",
-            "Service",
-            "Catégorie",
-            "Confiance",
-            "Traces",
-            "Statut",
-        ])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setHorizontalHeaderLabels(["Compte", "Service", "Catégorie", "Confiance", "Traces", "Statut"])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
+        header.setDefaultAlignment(Qt.AlignCenter)
+        for column in range(self.table.columnCount()):
+            item = self.table.horizontalHeaderItem(column)
+            if item:
+                item.setTextAlignment(Qt.AlignCenter)
         self.table.setSelectionMode(QTableWidget.NoSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
@@ -374,37 +276,12 @@ class ServicesPage(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_service_context_menu)
         self.table.setStyleSheet("""
-            QTableWidget {
-                background: transparent;
-                border: none;
-                gridline-color: transparent;
-                outline: none;
-                color: #E7EAF0;
-            }
-            QTableWidget::item {
-                background: transparent;
-                border: none;
-                outline: none;
-                padding: 0;
-                color: #E7EAF0;
-            }
-            QTableWidget::item:hover {
-                background: transparent;
-                color: #E7EAF0;
-            }
-            QTableWidget::item:selected,
-            QTableWidget::item:focus {
-                background: transparent;
-                color: #E7EAF0;
-                outline: none;
-                border: none;
-            }
-            QTableCornerButton::section {
-                background: transparent;
-                border: none;
-            }
+            QTableWidget { background: transparent; border: none; gridline-color: transparent; outline: none; color: #E7EAF0; }
+            QTableWidget::item { background: transparent; border: none; outline: none; padding: 0; color: #E7EAF0; }
+            QTableWidget::item:hover { background: transparent; color: #E7EAF0; }
+            QTableWidget::item:selected, QTableWidget::item:focus { background: transparent; color: #E7EAF0; outline: none; border: none; }
+            QTableCornerButton::section { background: transparent; border: none; }
         """)
-
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(54)
         self.table.setItemDelegate(ServiceTableDelegate(self.table))
@@ -414,47 +291,23 @@ class ServicesPage(QWidget):
         index = self.table.indexAt(position)
         if not index.isValid():
             return
-
         row = index.row()
         if not (0 <= row < len(self.row_details)):
             return
-
         menu = QMenu(self.table)
         menu.setStyleSheet("""
-            QMenu {
-                background: #171b22;
-                border: 1px solid #303846;
-                border-radius: 8px;
-                padding: 4px;
-            }
-            QMenu::item {
-                color: #E7EAF0;
-                background: transparent;
-                padding: 8px 18px;
-                margin: 0;
-                border-radius: 5px;
-            }
-            QMenu::item:selected {
-                color: #E7EAF0;
-                background: #303846;
-            }
+            QMenu { background: #171b22; border: 1px solid #303846; border-radius: 8px; padding: 4px; }
+            QMenu::item { color: #E7EAF0; background: transparent; padding: 8px 18px; margin: 0; border-radius: 5px; }
+            QMenu::item:selected { color: #E7EAF0; background: #303846; }
         """)
-
         details_action = menu.addAction("Plus de détails")
-        chosen_action = menu.exec(
-            self.table.viewport().mapToGlobal(position)
-        )
-
+        chosen_action = menu.exec(self.table.viewport().mapToGlobal(position))
         if chosen_action == details_action:
-            self._open_details_for_row(
-                row,
-                index.column(),
-            )
+            self._open_details_for_row(row, index.column())
 
     def set_active_account(self, account_id):
         if self.live_scan:
             return
-
         self.active_account_id = account_id
         self.live_rows.clear()
         self.live_account_ids.clear()
@@ -474,36 +327,20 @@ class ServicesPage(QWidget):
     def _open_details_for_row(self, row, _column):
         if not (0 <= row < len(self.row_details)):
             return
-
         details = dict(self.row_details[row])
         session = get_session()
-
         try:
             account_service_id = details.get("account_service_id")
-
             if account_service_id:
-                traces = session.scalars(
-                    select(ScanTrace).where(
-                        ScanTrace.account_service_id == account_service_id
-                    )
-                ).all()
-
+                traces = session.scalars(select(ScanTrace).where(ScanTrace.account_service_id == account_service_id)).all()
                 signals = set(details.get("signals") or [])
                 reliability = dict(details.get("reliability") or {})
-
                 for trace in traces:
                     if trace.signal_type:
                         signals.add(trace.signal_type)
-
                     if trace.signal_value:
-                        signals.update(
-                            part.strip()
-                            for part in str(trace.signal_value).split(",")
-                            if part.strip()
-                        )
-
+                        signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
                 details["signals"] = sorted(signals)
-
                 if not reliability:
                     details["reliability"] = {
                         "official_domain": "domain" in signals,
@@ -513,10 +350,8 @@ class ServicesPage(QWidget):
                         "dkim": None,
                         "dmarc": None,
                     }
-
         finally:
             session.close()
-
         ServiceDetailsDialog(details, self).exec()
 
     def start_live_scan(self, account_id):
@@ -525,34 +360,18 @@ class ServicesPage(QWidget):
             self.live_rows.clear()
             self.live_account_ids.clear()
             self.live_account_emails.clear()
-
         self.live_account_ids.add(account_id)
-
         email = self._get_account_email(account_id)
         if email:
             self.live_account_emails[account_id] = email
-
-        self.scan_label.setText(
-            f"● Scan en cours — {len(self.live_account_ids)} compte(s) — résultats en temps réel"
-        )
-
+        self.scan_label.setText(f"● Scan en cours — {len(self.live_account_ids)} compte(s) — résultats en temps réel")
         self._render_live_rows()
 
     def update_live_detection(self, account_id, data):
         if not self.live_scan or account_id not in self.live_account_ids:
             return
-
-        key = (
-            account_id,
-            data.get("service_id")
-            or data.get("name", "").strip().lower(),
-        )
-
-        email = (
-            data.get("account_email")
-            or self.live_account_emails.get(account_id, "")
-        )
-
+        key = (account_id, data.get("service_id") or data.get("name", "").strip().lower())
+        email = data.get("account_email") or self.live_account_emails.get(account_id, "")
         self.live_rows[key] = {
             "account_id": account_id,
             "account_email": email,
@@ -569,17 +388,14 @@ class ServicesPage(QWidget):
             "signals": data.get("signals", []),
             "reliability": data.get("reliability", {}),
         }
-
         self._render_live_rows()
 
     def finish_live_scan(self, mode):
         if not self.live_scan:
             return
-
         if mode == -1:
             self.keep_live_results_after_cancel()
             return
-
         self.live_scan = False
         self.scan_label.setText("")
         self.refresh()
@@ -589,36 +405,16 @@ class ServicesPage(QWidget):
 
     def keep_live_results_after_cancel(self):
         self.live_scan = False
-        self.scan_label.setText(
-            "Scan annulé — résultats déjà détectés conservés"
-        )
+        self.scan_label.setText("Scan annulé — résultats déjà détectés conservés")
         self._render_live_rows()
         self.live_account_ids.clear()
         self.live_account_emails.clear()
 
     def _render_live_rows(self):
         rows, details = [], []
-
-        for item in sorted(
-            self.live_rows.values(),
-            key=lambda x: (
-                -x["score"],
-                x["name"].lower(),
-                x["account_email"].lower(),
-            ),
-        ):
-            rows.append(
-                (
-                    item.get("account_email", ""),
-                    item["name"],
-                    item["category"],
-                    f'{item["score"]:.0f} %',
-                    str(item["count"]),
-                    item["status"],
-                )
-            )
+        for item in sorted(self.live_rows.values(), key=lambda x: (-x["score"], x["name"].lower(), x["account_email"].lower())):
+            rows.append((item.get("account_email", ""), item["name"], item["category"], f'{item["score"]:.0f} %', str(item["count"]), item["status"]))
             details.append(item)
-
         self._set_rows(rows, details)
 
     def _set_rows(self, rows, details=None):
@@ -628,42 +424,24 @@ class ServicesPage(QWidget):
 
     def _filter_services(self, text):
         query = (text or "").strip().casefold()
-
         if not query:
-            rows = self._all_rows
-            details = self._all_details
+            rows, details = self._all_rows, self._all_details
         else:
             rows, details = [], []
-
-            for row, detail in zip(
-                self._all_rows,
-                self._all_details,
-            ):
-                haystack = " ".join(
-                    str(value)
-                    for value in row
-                ).casefold()
-
+            for row, detail in zip(self._all_rows, self._all_details):
+                haystack = " ".join(str(value) for value in row).casefold()
                 if query in haystack:
                     rows.append(row)
                     details.append(detail)
-
         self.row_details = details
         self.table.setRowCount(len(rows))
-
         for r, row in enumerate(rows):
             for c, value in enumerate(row):
                 item = QTableWidgetItem(str(value))
-                item.setFlags(
-                    item.flags()
-                    & ~Qt.ItemIsEditable
-                    & ~Qt.ItemIsSelectable
-                )
-                item.setForeground(
-                    QColor(231, 234, 240)
-                )
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
+                item.setForeground(QColor(231, 234, 240))
+                item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
                 self.table.setItem(r, c, item)
-
         self.table.clearSelection()
         self.table.setCurrentItem(None)
         self.table.viewport().update()
@@ -671,24 +449,14 @@ class ServicesPage(QWidget):
     def refresh(self):
         session = get_session()
         rows, details, selected_account = [], [], None
-
         try:
             for account in get_accounts(session):
-                if (
-                    self.active_account_id is not None
-                    and account.id != self.active_account_id
-                ):
+                if self.active_account_id is not None and account.id != self.active_account_id:
                     continue
-
                 if account.id == self.active_account_id:
                     selected_account = account
-
-                for link in get_account_services(
-                    session,
-                    account.id,
-                ):
+                for link in get_account_services(session, account.id):
                     service = link.service
-
                     details.append({
                         "account_id": account.id,
                         "account_service_id": link.id,
@@ -707,31 +475,13 @@ class ServicesPage(QWidget):
                         "signals": [],
                         "reliability": {},
                     })
-
-                    rows.append(
-                        (
-                            account.email,
-                            service.name,
-                            service.category,
-                            f"{link.confidence_score:.0f} %",
-                            str(link.trace_count),
-                            link.status,
-                        )
-                    )
-
+                    rows.append((account.email, service.name, service.category, f"{link.confidence_score:.0f} %", str(link.trace_count), link.status))
         finally:
             session.close()
-
         self.account_label.setText(
-            "Tous les comptes"
-            if self.active_account_id is None
-            else (
-                f"Compte sélectionné : {selected_account.email}"
-                if selected_account
-                else "Compte sélectionné introuvable"
-            )
+            "Tous les comptes" if self.active_account_id is None
+            else (f"Compte sélectionné : {selected_account.email}" if selected_account else "Compte sélectionné introuvable")
         )
-
         if not self.live_scan:
             self._set_rows(rows, details)
 
@@ -739,34 +489,23 @@ class ServicesPage(QWidget):
         answer = QMessageBox.question(
             self,
             "Nettoyage des services",
-            "Supprimer tous les services détectés par les scans ?\n\n"
-            "Les comptes Google et leurs autorisations ne seront pas supprimés.",
+            "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-
         if answer != QMessageBox.Yes:
             return
-
         session = get_session()
-
         try:
             session.execute(delete(ScanTrace))
             session.execute(delete(AccountService))
             session.commit()
-
         except Exception as exc:
             session.rollback()
-            QMessageBox.critical(
-                self,
-                "Nettoyage",
-                f"Impossible de nettoyer les résultats : {exc}",
-            )
+            QMessageBox.critical(self, "Nettoyage", f"Impossible de nettoyer les résultats : {exc}")
             return
-
         finally:
             session.close()
-
         self.live_rows.clear()
         self.live_account_ids.clear()
         self.live_account_emails.clear()
