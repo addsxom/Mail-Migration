@@ -1,8 +1,4 @@
-"""Service detection rules used by the Gmail scanner.
-
-Phase 4.1 improves the signals used to identify services. The score formula
-itself is intentionally unchanged for Phase 4.2.
-"""
+"""Service detection rules used by the Gmail scanner."""
 
 import re
 from email.utils import parseaddr
@@ -12,10 +8,11 @@ from app.scanner.scorer import calculate_score
 
 
 class Detection:
-    def __init__(self, service, score, signals):
+    def __init__(self, service, score, signals, reliability=None):
         self.service = service
         self.score = score
         self.signals = signals
+        self.reliability = reliability or {}
 
 
 def _normalise(value):
@@ -38,13 +35,10 @@ def _sender_display_name(sender):
 
 def _domain_matches(message_domain, configured_domain):
     domain = _normalise(configured_domain)
-    return bool(message_domain) and (
-        message_domain == domain or message_domain.endswith("." + domain)
-    )
+    return bool(message_domain) and (message_domain == domain or message_domain.endswith("." + domain))
 
 
 def _contains_term(text, term):
-    """Match a complete word/phrase, avoiding accidental substring matches."""
     text = _normalise(text)
     term = _normalise(term)
     if not text or not term:
@@ -57,21 +51,16 @@ def _sender_matches(sender, definition):
     address = _sender_address(sender)
     display_name = _sender_display_name(sender)
     configured = [_normalise(value) for value in definition.get("senders", []) if value]
-
-    # Email senders must match exactly. Display-name rules are supported when
-    # a catalog entry intentionally contains a name rather than an address.
     if address and address in configured:
         return True
-    return any("@" not in value and _contains_term(display_name, value)
-               for value in configured)
+    return any("@" not in value and _contains_term(display_name, value) for value in configured)
 
 
 def detect_message(message, service_definitions=None, catalog_index=None):
-    """Detect catalog services using domain, sender, subject and keywords.
+    """Detect catalog services and expose source-reliability details.
 
-    Phase 4.1 deliberately keeps the existing signal names so the current
-    scorer remains compatible. It improves matching precision by normalising
-    text and using complete-word/phrase matching instead of loose substrings.
+    Authentication-Results is treated as supporting context only. Its absence
+    is not evidence of fraud, and it does not alter the service score yet.
     """
     headers = {
         h.get("name", "").casefold(): h.get("value", "")
@@ -81,6 +70,7 @@ def detect_message(message, service_definitions=None, catalog_index=None):
     sender = headers.get("from", "")
     subject = headers.get("subject", "")
     domain = _domain_from_sender(sender)
+    auth_results = _normalise(headers.get("authentication-results", ""))
 
     if catalog_index is None:
         catalog_index = CatalogIndex(service_definitions)
@@ -90,24 +80,39 @@ def detect_message(message, service_definitions=None, catalog_index=None):
 
     for definition in definitions:
         signals = []
+        domain_match = any(_domain_matches(domain, configured) for configured in definition.get("domains", []))
+        sender_match = _sender_matches(sender, definition)
+        subject_match = bool(definition.get("name")) and _contains_term(subject, definition["name"])
+        keyword_match = any(_contains_term(subject, keyword) for keyword in definition.get("keywords", []))
 
-        if any(_domain_matches(domain, configured)
-               for configured in definition.get("domains", [])):
+        if domain_match:
             signals.append("domain")
-
-        if _sender_matches(sender, definition):
+        if sender_match:
             signals.append("sender")
-
-        service_name = definition.get("name", "")
-        if service_name and _contains_term(subject, service_name):
+        if subject_match:
             signals.append("subject")
-
-        if any(_contains_term(subject, keyword)
-               for keyword in definition.get("keywords", [])):
+        if keyword_match:
             signals.append("keyword")
 
-        if signals:
-            score = calculate_score(signals)
-            results.append(Detection(definition, score, signals))
+        if not signals:
+            continue
+
+        reliability = {
+            "spf": "spf=pass" in auth_results if auth_results else None,
+            "dkim": "dkim=pass" in auth_results if auth_results else None,
+            "dmarc": "dmarc=pass" in auth_results if auth_results else None,
+            "official_domain": domain_match,
+            "known_sender": sender_match,
+        }
+        checks = [reliability[k] for k in ("spf", "dkim", "dmarc") if reliability[k] is not None]
+        reliability["authentication_available"] = bool(checks)
+        reliability["authentication_passed"] = bool(checks) and all(checks)
+
+        results.append(Detection(
+            definition,
+            calculate_score(signals),
+            signals,
+            reliability=reliability,
+        ))
 
     return sorted(results, key=lambda detection: detection.score, reverse=True)
