@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
-    QWidget, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
+    QWidget, QLineEdit, QStyledItemDelegate,
 )
 from sqlalchemy import delete, select
 
@@ -37,7 +37,6 @@ class ServiceDetailsDialog(QDialog):
             QLabel.scoreValue { font-size: 18px; font-weight: 700; }
             QPushButton { padding: 8px 16px; border-radius: 8px; }
         """)
-
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(18, 18, 18, 18)
         card_layout.setSpacing(14)
@@ -45,7 +44,6 @@ class ServiceDetailsDialog(QDialog):
         title = QLabel(details.get("name", "Service"))
         title.setObjectName("serviceDetailsTitle")
         card_layout.addWidget(title)
-
         subtitle = QLabel(details.get("category", "Autre"))
         subtitle.setObjectName("serviceDetailsSubtitle")
         card_layout.addWidget(subtitle)
@@ -53,7 +51,6 @@ class ServiceDetailsDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(18)
         grid.setVerticalSpacing(10)
-
         fields = [
             ("Compte Gmail", details.get("account_email", "—")),
             ("Confiance", self._format_score(details.get("score"))),
@@ -66,7 +63,6 @@ class ServiceDetailsDialog(QDialog):
             ("Sous-catégorie", details.get("subcategory", "—")),
             ("Notes", details.get("notes", "—")),
         ]
-
         for row, (label_text, value_text) in enumerate(fields):
             label = QLabel(label_text)
             label.setProperty("class", "detailLabel")
@@ -84,7 +80,6 @@ class ServiceDetailsDialog(QDialog):
         signal_value = QLabel(self._format_signals(details.get("signals") or []))
         signal_value.setObjectName("signalValue")
         signal_value.setWordWrap(True)
-        signal_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         grid.addWidget(signal_label, row, 0, Qt.AlignTop)
         grid.addWidget(signal_value, row, 1)
 
@@ -94,7 +89,6 @@ class ServiceDetailsDialog(QDialog):
         score_value = QLabel(self._format_score_breakdown(details.get("signals") or []))
         score_value.setObjectName("signalValue")
         score_value.setWordWrap(True)
-        score_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         grid.addWidget(score_label, row, 0, Qt.AlignTop)
         grid.addWidget(score_value, row, 1)
 
@@ -104,13 +98,11 @@ class ServiceDetailsDialog(QDialog):
         reliability_value = QLabel(self._format_reliability(details.get("reliability") or {}))
         reliability_value.setObjectName("signalValue")
         reliability_value.setWordWrap(True)
-        reliability_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
         grid.addWidget(reliability_label, row, 0, Qt.AlignTop)
         grid.addWidget(reliability_value, row, 1)
 
         card_layout.addLayout(grid)
         root.addWidget(card)
-
         close_button = QPushButton("Fermer")
         close_button.clicked.connect(self.accept)
         root.addWidget(close_button, 0, Qt.AlignRight)
@@ -129,12 +121,7 @@ class ServiceDetailsDialog(QDialog):
 
     @staticmethod
     def _format_signals(signals):
-        labels = {
-            "domain": "✓ Domaine correspondant",
-            "sender": "✓ Expéditeur correspondant",
-            "subject": "✓ Sujet correspondant",
-            "keyword": "✓ Mot-clé correspondant",
-        }
+        labels = {"domain": "✓ Domaine correspondant", "sender": "✓ Expéditeur correspondant", "subject": "✓ Sujet correspondant", "keyword": "✓ Mot-clé correspondant"}
         if not signals:
             return "Aucun signal détaillé disponible"
         return "\n".join(labels.get(signal, f"✓ {signal}") for signal in signals)
@@ -142,17 +129,9 @@ class ServiceDetailsDialog(QDialog):
     @staticmethod
     def _format_score_breakdown(signals):
         weights = {"domain": 50, "sender": 25, "subject": 15, "keyword": 10}
-        labels = {
-            "domain": "Domaine exact",
-            "sender": "Expéditeur connu",
-            "subject": "Sujet correspondant",
-            "keyword": "Mot-clé correspondant",
-        }
+        labels = {"domain": "Domaine exact", "sender": "Expéditeur connu", "subject": "Sujet correspondant", "keyword": "Mot-clé correspondant"}
         unique = set(signals)
-        lines = [
-            f"{'✓' if key in unique else '✗'} {labels[key]}    +{weights[key] if key in unique else 0}"
-            for key in ("domain", "sender", "subject", "keyword")
-        ]
+        lines = [f"{'✓' if key in unique else '✗'} {labels[key]}    +{weights[key] if key in unique else 0}" for key in ("domain", "sender", "subject", "keyword")]
         total = min(100, sum(weights[key] for key in unique if key in weights))
         return "\n".join(lines) + f"\n────────────────────────\nTotal                    {total} %"
 
@@ -160,53 +139,40 @@ class ServiceDetailsDialog(QDialog):
     def _format_reliability(reliability):
         if not reliability:
             return "Aucune information de fiabilité disponible"
-
-        lines = []
-        lines.append("✓ Domaine officiel" if reliability.get("official_domain") else "✗ Domaine officiel non confirmé")
-        lines.append("✓ Expéditeur connu" if reliability.get("known_sender") else "✗ Expéditeur non reconnu")
-        lines.append("")
-        lines.append("Authentification")
-
+        lines = [
+            "✓ Domaine officiel" if reliability.get("official_domain") else "✗ Domaine officiel non confirmé",
+            "✓ Expéditeur connu" if reliability.get("known_sender") else "✗ Expéditeur non reconnu",
+            "",
+            "Authentification",
+        ]
         if not reliability.get("authentication_available"):
             lines.extend(["○ SPF — non disponible", "○ DKIM — non disponible", "○ DMARC — non disponible"])
         else:
             for key, label in (("spf", "SPF"), ("dkim", "DKIM"), ("dmarc", "DMARC")):
                 value = reliability.get(key)
                 lines.append(f"{'✓' if value else '✗'} {label} — {'pass' if value else 'échec'}")
-
         return "\n".join(lines)
 
 
-class ServiceTableDelegate(QStyledItemDelegate):
-    """Draws one continuous rounded background for the complete service row."""
-
+class ServiceRowDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         table = self.parent()
-        hovered_row = getattr(table, "hovered_row", -1)
-        row = index.row()
-        column = index.column()
-
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
 
-        if column == 0:
-            row_rect = QRectF(
-                3,
-                option.rect.top() + 4,
-                max(0, table.viewport().width() - 6),
-                max(0, option.rect.height() - 8),
-            )
-            bg = QColor(48, 58, 72) if row == hovered_row else QColor(29, 34, 43)
+        if index.column() == 0:
+            row_rect = QRectF(4, option.rect.top() + 5, max(0, table.viewport().width() - 8), max(0, option.rect.height() - 10))
             path = QPainterPath()
-            path.addRoundedRect(row_rect, 9, 9)
-            painter.fillPath(path, bg)
+            path.addRoundedRect(row_rect, 10, 10)
+            painter.fillPath(path, QColor(29, 34, 43))
 
-        text_option = QStyleOptionViewItem(option)
-        text_option.state &= ~QStyle.State_MouseOver
-        text_option.state &= ~QStyle.State_Selected
-        text_option.rect = option.rect.adjusted(8, 0, -8, 0)
-        text_option.backgroundBrush = Qt.NoBrush
-        super().paint(painter, text_option, index)
+        text = index.data(Qt.DisplayRole)
+        if text is not None:
+            rect = option.rect.adjusted(10, 0, -10, 0)
+            painter.setPen(QColor(231, 234, 240))
+            painter.setFont(option.font)
+            painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeft, str(text))
+
         painter.restore()
 
 
@@ -219,7 +185,6 @@ class ServicesPage(QWidget):
         self.live_rows = {}
         self.row_details = []
         self.live_account_emails = {}
-        self.hovered_row = -1
         self._all_rows = []
         self._all_details = []
 
@@ -239,36 +204,18 @@ class ServicesPage(QWidget):
         search_container = QFrame()
         search_container.setObjectName("serviceSearchContainer")
         search_container.setStyleSheet("""
-            QFrame#serviceSearchContainer {
-                border: 1px solid #303846;
-                border-radius: 10px;
-                background: #171b22;
-            }
-            QFrame#serviceSearchContainer:focus-within {
-                border: 1px solid #58677d;
-            }
-            QLabel#serviceSearchIcon {
-                border: none;
-                background: transparent;
-                padding-left: 12px;
-                padding-right: 4px;
-                font-size: 17px;
-            }
-            QLineEdit#serviceSearchInput {
-                border: none;
-                background: transparent;
-                padding: 0 10px 0 4px;
-            }
+            QFrame#serviceSearchContainer { border: 1px solid #303846; border-radius: 10px; background: #171b22; }
+            QFrame#serviceSearchContainer:focus-within { border: 1px solid #58677d; }
+            QLabel#serviceSearchIcon { border: none; background: transparent; padding-left: 12px; padding-right: 4px; font-size: 17px; }
+            QLineEdit#serviceSearchInput { border: none; background: transparent; padding: 0 10px 0 4px; }
         """)
         search_layout = QHBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(0)
-
         search_icon = QLabel("🔎")
         search_icon.setObjectName("serviceSearchIcon")
         search_icon.setAlignment(Qt.AlignCenter)
         search_layout.addWidget(search_icon)
-
         self.search_input = QLineEdit()
         self.search_input.setObjectName("serviceSearchInput")
         self.search_input.setPlaceholderText("Rechercher un service, compte ou catégorie...")
@@ -293,52 +240,19 @@ class ServicesPage(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setShowGrid(False)
-        self.table.setMouseTracking(True)
+        self.table.setMouseTracking(False)
         self.table.setStyleSheet("""
-            QTableWidget {
-                background: transparent;
-                border: none;
-                gridline-color: transparent;
-            }
-            QTableWidget::item {
-                background: transparent;
-                border: none;
-                outline: none;
-            }
-            QTableWidget::item:selected {
-                background: transparent;
-                color: inherit;
-            }
-            QTableWidget::item:focus {
-                outline: none;
-            }
+            QTableWidget { background: transparent; border: none; gridline-color: transparent; outline: none; }
+            QTableWidget::item { background: transparent; border: none; outline: none; padding: 0; }
+            QTableWidget::item:selected { background: transparent; color: inherit; outline: none; }
+            QTableWidget::item:focus { background: transparent; outline: none; border: none; }
+            QTableCornerButton::section { background: transparent; border: none; }
         """)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(50)
-        self.table.setItemDelegate(ServiceTableDelegate(self.table))
-        self.table.cellClicked.connect(self._clear_table_click_state)
+        self.table.verticalHeader().setDefaultSectionSize(54)
+        self.table.setItemDelegate(ServiceRowDelegate(self.table))
         self.table.cellDoubleClicked.connect(self._open_details_for_row)
-        self.table.viewport().installEventFilter(self)
         layout.addWidget(self.table)
-
-    def _clear_table_click_state(self, _row, _column):
-        self.table.clearSelection()
-        self.table.setCurrentItem(None)
-        self.table.viewport().update()
-
-    def eventFilter(self, watched, event):
-        if watched is self.table.viewport():
-            if event.type() == event.Type.MouseMove:
-                index = self.table.indexAt(event.position().toPoint())
-                new_row = index.row() if index.isValid() else -1
-                if new_row != self.hovered_row:
-                    self.hovered_row = new_row
-                    self.table.viewport().update()
-            elif event.type() == event.Type.Leave:
-                if self.hovered_row != -1:
-                    self.hovered_row = -1
-                    self.table.viewport().update()
-        return super().eventFilter(watched, event)
 
     def set_active_account(self, account_id):
         if self.live_scan:
@@ -377,7 +291,7 @@ class ServicesPage(QWidget):
                         signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
                 details["signals"] = sorted(signals)
                 if not reliability:
-                    reliability = {
+                    details["reliability"] = {
                         "official_domain": "domain" in signals,
                         "known_sender": "sender" in signals,
                         "authentication_available": False,
@@ -385,7 +299,6 @@ class ServicesPage(QWidget):
                         "dkim": None,
                         "dmarc": None,
                     }
-                    details["reliability"] = reliability
         finally:
             session.close()
         ServiceDetailsDialog(details, self).exec()
@@ -461,8 +374,7 @@ class ServicesPage(QWidget):
     def _filter_services(self, text):
         query = (text or "").strip().casefold()
         if not query:
-            rows = self._all_rows
-            details = self._all_details
+            rows, details = self._all_rows, self._all_details
         else:
             rows, details = [], []
             for row, detail in zip(self._all_rows, self._all_details):
@@ -470,7 +382,6 @@ class ServicesPage(QWidget):
                 if query in haystack:
                     rows.append(row)
                     details.append(detail)
-
         self.row_details = details
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
@@ -478,7 +389,6 @@ class ServicesPage(QWidget):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
                 self.table.setItem(r, c, item)
-        self.hovered_row = -1
         self.table.clearSelection()
         self.table.setCurrentItem(None)
         self.table.viewport().update()
@@ -521,7 +431,13 @@ class ServicesPage(QWidget):
             self._set_rows(rows, details)
 
     def cleanup_scanned_services(self):
-        answer = QMessageBox.question(self, "Nettoyage des services", "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        answer = QMessageBox.question(
+            self,
+            "Nettoyage des services",
+            "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
         if answer != QMessageBox.Yes:
             return
         session = get_session()
