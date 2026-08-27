@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import delete, select
 
 from app.database.database import get_session
-from app.database.models import GoogleAccount, AccountService, ScanTrace
+from app.database.models import GoogleAccount, AccountService, ScanTrace, Service
 from app.database.repositories import get_accounts, get_account_services
 
 
@@ -155,6 +155,9 @@ class ServiceDetailsDialog(QDialog):
             self.save_button.setToolTip("Disponible après l'enregistrement du service")
 
     def _save(self):
+        if not self.account_service_id:
+            QMessageBox.warning(self, "Migration", "Impossible de retrouver ce service.")
+            return
         session = get_session()
         try:
             link = session.get(AccountService, self.account_service_id)
@@ -245,12 +248,7 @@ class ServiceTableDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         if index.column() == 0:
-            row_rect = QRectF(
-                4,
-                option.rect.top() + 5,
-                max(0.0, table.viewport().width() - 8),
-                max(0.0, option.rect.height() - 10),
-            )
+            row_rect = QRectF(4, option.rect.top() + 5, max(0.0, table.viewport().width() - 8), max(0.0, option.rect.height() - 10))
             path = QPainterPath()
             path.addRoundedRect(row_rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
@@ -259,9 +257,7 @@ class ServiceTableDelegate(QStyledItemDelegate):
             text_rect = option.rect.adjusted(10, 0, -10, 0)
             painter.setPen(QColor(231, 234, 240))
             painter.setFont(option.font)
-            display_text = QFontMetrics(option.font).elidedText(
-                str(text), Qt.ElideRight, max(0, text_rect.width())
-            )
+            display_text = QFontMetrics(option.font).elidedText(str(text), Qt.ElideRight, max(0, text_rect.width()))
             painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignHCenter, display_text)
         painter.restore()
 
@@ -281,12 +277,7 @@ class ServiceTable(QTableWidget):
                 break
             if y + height < 0:
                 continue
-            rect = QRectF(
-                4,
-                y + 5,
-                max(0.0, self.viewport().width() - 8),
-                max(0.0, height - 10),
-            )
+            rect = QRectF(4, y + 5, max(0.0, self.viewport().width() - 8), max(0.0, height - 10))
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, bg)
@@ -310,15 +301,12 @@ class ServicesPage(QWidget):
         title = QLabel("Inventaire des services")
         title.setObjectName("title")
         layout.addWidget(title)
-
         self.account_label = QLabel("Tous les comptes")
         self.account_label.setObjectName("muted")
         layout.addWidget(self.account_label)
-
         self.scan_label = QLabel("")
         self.scan_label.setObjectName("muted")
         layout.addWidget(self.scan_label)
-
         self.migration_summary = QLabel("")
         self.migration_summary.setObjectName("muted")
         layout.addWidget(self.migration_summary)
@@ -365,7 +353,6 @@ class ServicesPage(QWidget):
             item = self.table.horizontalHeaderItem(column)
             if item:
                 item.setTextAlignment(Qt.AlignCenter)
-
         self.table.setSelectionMode(QTableWidget.NoSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
@@ -387,6 +374,33 @@ class ServicesPage(QWidget):
         self.table.setItemDelegate(ServiceTableDelegate(self.table))
         layout.addWidget(self.table)
 
+    def _resolve_account_service_id(self, details):
+        account_service_id = details.get("account_service_id")
+        if account_service_id:
+            return account_service_id
+
+        account_id = details.get("account_id")
+        service_name = details.get("name")
+        if not account_id or not service_name:
+            return None
+
+        session = get_session()
+        try:
+            link = session.scalar(
+                select(AccountService)
+                .join(AccountService.service)
+                .where(
+                    AccountService.account_id == account_id,
+                    Service.name == service_name,
+                )
+            )
+            if link:
+                details["account_service_id"] = link.id
+                return link.id
+        finally:
+            session.close()
+        return None
+
     def _show_service_context_menu(self, position):
         index = self.table.indexAt(position)
         if not index.isValid():
@@ -394,22 +408,21 @@ class ServicesPage(QWidget):
         row = index.row()
         if not (0 <= row < len(self.row_details)):
             return
-
         details = self.row_details[row]
+        self._resolve_account_service_id(details)
+
         menu = QMenu(self.table)
         menu.setStyleSheet("""
             QMenu { background: #171b22; border: 1px solid #303846; border-radius: 8px; padding: 4px; }
             QMenu::item { color: #E7EAF0; background: transparent; padding: 8px 18px; margin: 0; border-radius: 5px; }
             QMenu::item:selected { color: #E7EAF0; background: #303846; }
         """)
-
         details_action = menu.addAction("Plus de détails")
         status_menu = menu.addMenu("Statut de migration")
         status_actions = {}
         for status in MIGRATION_STATUSES:
             action = status_menu.addAction(status)
             status_actions[action] = status
-
         destination_action = menu.addAction("Définir l'adresse de destination…")
         chosen_action = menu.exec(self.table.viewport().mapToGlobal(position))
 
@@ -424,15 +437,16 @@ class ServicesPage(QWidget):
         if not (0 <= row < len(self.row_details)):
             return
         details = self.row_details[row]
-        account_service_id = details.get("account_service_id")
+        account_service_id = self._resolve_account_service_id(details)
         if not account_service_id:
-            QMessageBox.information(self, "Migration", "Ce résultat de scan n'est pas encore enregistré en base.")
+            QMessageBox.information(self, "Migration", "Ce service n'est pas encore disponible en base de données.")
             return
 
         session = get_session()
         try:
             link = session.get(AccountService, account_service_id)
             if not link:
+                QMessageBox.information(self, "Migration", "Impossible de retrouver ce service en base de données.")
                 return
             link.status = status
             link.migrated_at = datetime.now(timezone.utc) if status == "Migré" else None
@@ -449,22 +463,22 @@ class ServicesPage(QWidget):
         if not (0 <= row < len(self.row_details)):
             return
         details = self.row_details[row]
-        account_service_id = details.get("account_service_id")
+        account_service_id = self._resolve_account_service_id(details)
         if not account_service_id:
-            QMessageBox.information(self, "Migration", "Ce résultat de scan n'est pas encore enregistré en base.")
+            QMessageBox.information(self, "Migration", "Ce service n'est pas encore disponible en base de données.")
             return
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Adresse de destination")
         dialog.setModal(True)
         dialog.setMinimumWidth(420)
-        layout = QVBoxLayout(dialog)
+        dialog_layout = QVBoxLayout(dialog)
         label = QLabel(f"Nouvelle adresse pour {details.get('name', 'ce service')} :")
         label.setWordWrap(True)
-        layout.addWidget(label)
+        dialog_layout.addWidget(label)
         field = QLineEdit(details.get("destination") or "")
         field.setPlaceholderText("nouvelle.adresse@gmail.com")
-        layout.addWidget(field)
+        dialog_layout.addWidget(field)
         buttons = QHBoxLayout()
         buttons.addStretch()
         cancel = QPushButton("Annuler")
@@ -473,7 +487,7 @@ class ServicesPage(QWidget):
         save.clicked.connect(dialog.accept)
         buttons.addWidget(cancel)
         buttons.addWidget(save)
-        layout.addLayout(buttons)
+        dialog_layout.addLayout(buttons)
         if dialog.exec() != QDialog.Accepted:
             return
 
@@ -515,6 +529,7 @@ class ServicesPage(QWidget):
         if not (0 <= row < len(self.row_details)):
             return
         details = dict(self.row_details[row])
+        self._resolve_account_service_id(details)
         session = get_session()
         try:
             account_service_id = details.get("account_service_id")
@@ -560,24 +575,21 @@ class ServicesPage(QWidget):
         email = self._get_account_email(account_id)
         if email:
             self.live_account_emails[account_id] = email
-        self.scan_label.setText(
-            f"● Scan en cours — {len(self.live_account_ids)} compte(s) — résultats en temps réel"
-        )
+        self.scan_label.setText(f"● Scan en cours — {len(self.live_account_ids)} compte(s) — résultats en temps réel")
         self._render_live_rows()
 
     def update_live_detection(self, account_id, data):
         if not self.live_scan or account_id not in self.live_account_ids:
             return
-        key = (
-            account_id,
-            data.get("service_id") or data.get("name", "").strip().lower(),
-        )
+        key = (account_id, data.get("service_id") or data.get("name", "").strip().lower())
         email = data.get("account_email") or self.live_account_emails.get(account_id, "")
         self.live_rows[key] = {
             "account_id": account_id,
+            "account_service_id": data.get("account_service_id"),
             "account_email": email,
             "name": data.get("name", "Service inconnu"),
             "category": data.get("category", "Autre"),
+            "subcategory": data.get("subcategory"),
             "score": float(data.get("score", 0)),
             "count": int(data.get("count", 0)),
             "status": data.get("status", "À vérifier"),
@@ -613,20 +625,8 @@ class ServicesPage(QWidget):
 
     def _render_live_rows(self):
         rows, details = [], []
-        for item in sorted(
-            self.live_rows.values(),
-            key=lambda x: (-x["score"], x["name"].lower(), x["account_email"].lower()),
-        ):
-            rows.append(
-                (
-                    item.get("account_email", ""),
-                    item["name"],
-                    item["category"],
-                    f'{item["score"]:.0f} %',
-                    str(item["count"]),
-                    item["status"],
-                )
-            )
+        for item in sorted(self.live_rows.values(), key=lambda x: (-x["score"], x["name"].lower(), x["account_email"].lower())):
+            rows.append((item.get("account_email", ""), item["name"], item["category"], f'{item["score"]:.0f} %', str(item["count"]), item["status"]))
             details.append(item)
         self._set_rows(rows, details)
 
@@ -646,7 +646,6 @@ class ServicesPage(QWidget):
                 if query in haystack:
                     rows.append(row)
                     details.append(detail)
-
         self.row_details = details
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
@@ -704,28 +703,11 @@ class ServicesPage(QWidget):
                         "signals": [],
                         "reliability": {},
                     })
-                    rows.append(
-                        (
-                            account.email,
-                            service.name,
-                            service.category,
-                            f"{link.confidence_score:.0f} %",
-                            str(link.trace_count),
-                            link.status or "À vérifier",
-                        )
-                    )
+                    rows.append((account.email, service.name, service.category, f"{link.confidence_score:.0f} %", str(link.trace_count), link.status or "À vérifier"))
         finally:
             session.close()
 
-        self.account_label.setText(
-            "Tous les comptes"
-            if self.active_account_id is None
-            else (
-                f"Compte sélectionné : {selected_account.email}"
-                if selected_account
-                else "Compte sélectionné introuvable"
-            )
-        )
+        self.account_label.setText("Tous les comptes" if self.active_account_id is None else (f"Compte sélectionné : {selected_account.email}" if selected_account else "Compte sélectionné introuvable"))
         self._update_migration_summary(details)
         if not self.live_scan:
             self._set_rows(rows, details)
