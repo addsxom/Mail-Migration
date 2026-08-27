@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
-    QWidget, QLineEdit,
+    QWidget, QLineEdit, QMenu,
 )
 from sqlalchemy import delete, select
 
@@ -301,6 +301,8 @@ class ServicesPage(QWidget):
         self.table.setMouseTracking(False)
         self.table.setAttribute(Qt.WA_Hover, False)
         self.table.viewport().setAttribute(Qt.WA_Hover, False)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_service_context_menu)
         self.table.setStyleSheet("""
             QTableWidget {
                 background: transparent;
@@ -336,8 +338,23 @@ class ServicesPage(QWidget):
 
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(54)
-        self.table.cellDoubleClicked.connect(self._open_details_for_row)
         layout.addWidget(self.table)
+
+    def _show_service_context_menu(self, position):
+        index = self.table.indexAt(position)
+        if not index.isValid():
+            return
+
+        row = index.row()
+        if not (0 <= row < len(self.row_details)):
+            return
+
+        menu = QMenu(self.table)
+        details_action = menu.addAction("Plus de détails")
+        chosen_action = menu.exec(self.table.viewport().mapToGlobal(position))
+
+        if chosen_action == details_action:
+            self._open_details_for_row(row, index.column())
 
     def set_active_account(self, account_id):
         if self.live_scan:
