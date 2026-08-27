@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
-    QWidget, QLineEdit, QMenu,
+    QWidget, QLineEdit, QMenu, QWidgetAction,
 )
 from sqlalchemy import delete, select
 
@@ -309,24 +309,27 @@ class ServicesPage(QWidget):
                 border: none;
                 gridline-color: transparent;
                 outline: none;
+                color: #E7EAF0;
             }
             QTableWidget::item {
                 background: transparent;
                 border: none;
                 outline: none;
                 padding: 0;
+                color: #E7EAF0;
             }
             QTableWidget::item:hover {
                 background: transparent;
-                color: inherit;
+                color: #E7EAF0;
             }
             QTableWidget::item:selected {
                 background: transparent;
-                color: inherit;
+                color: #E7EAF0;
                 outline: none;
             }
             QTableWidget::item:focus {
                 background: transparent;
+                color: #E7EAF0;
                 outline: none;
                 border: none;
             }
@@ -350,6 +353,27 @@ class ServicesPage(QWidget):
             return
 
         menu = QMenu(self.table)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #171b22;
+                border: 1px solid #303846;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                color: #E7EAF0;
+                background: transparent;
+                padding: 8px 18px;
+                margin: 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            QMenu::item:selected {
+                color: #E7EAF0;
+                background: #303846;
+            }
+        """)
+
         details_action = menu.addAction("Plus de détails")
         chosen_action = menu.exec(self.table.viewport().mapToGlobal(position))
 
@@ -445,7 +469,6 @@ class ServicesPage(QWidget):
             data.get("service_id") or data.get("name", "").strip().lower(),
         )
         email = data.get("account_email") or self.live_account_emails.get(account_id, "")
-
         self.live_rows[key] = {
             "account_id": account_id,
             "account_email": email,
@@ -467,7 +490,6 @@ class ServicesPage(QWidget):
     def finish_live_scan(self, mode):
         if not self.live_scan:
             return
-
         if mode == -1:
             self.keep_live_results_after_cancel()
             return
@@ -488,7 +510,6 @@ class ServicesPage(QWidget):
 
     def _render_live_rows(self):
         rows, details = [], []
-
         for item in sorted(
             self.live_rows.values(),
             key=lambda x: (
@@ -534,6 +555,7 @@ class ServicesPage(QWidget):
             for c, value in enumerate(row):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
+                item.setForeground(QColor(231, 234, 240))
                 self.table.setItem(r, c, item)
 
         self.table.clearSelection()
