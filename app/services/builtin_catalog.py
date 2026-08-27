@@ -15,6 +15,11 @@ CATALOG = [
     {"name": "Twitch", "category": "Jeux", "domains": ["twitch.tv"], "senders": [], "keywords": ["Twitch"]},
     {"name": "Roblox", "category": "Jeux", "domains": ["roblox.com"], "senders": [], "keywords": ["Roblox"]},
     {"name": "Discord", "category": "Réseaux sociaux", "domains": ["discord.com", "discordapp.com"], "senders": ["noreply@discord.com"], "keywords": ["Discord"]},
+    {"name": "Epic Games Store", "category": "Jeux", "domains": ["epicgames.com"], "senders": [], "keywords": ["Epic Games Store"]},
+    {"name": "NVIDIA", "category": "Jeux", "domains": ["nvidia.com"], "senders": [], "keywords": ["NVIDIA", "GeForce"]},
+    {"name": "PlayStation Store", "category": "Jeux", "domains": ["playstation.com"], "senders": [], "keywords": ["PlayStation Store"]},
+    {"name": "Nintendo eShop", "category": "Jeux", "domains": ["nintendo.com"], "senders": [], "keywords": ["Nintendo eShop"]},
+    {"name": "EA Sports", "category": "Jeux", "domains": ["ea.com"], "senders": [], "keywords": ["EA Sports", "EA SPORTS FC", "FIFA"]},
 
     # Streaming / médias
     {"name": "Netflix", "category": "Streaming", "domains": ["netflix.com"], "senders": ["info@account.netflix.com"], "keywords": ["Netflix"]},
@@ -24,7 +29,11 @@ CATALOG = [
     {"name": "Amazon Prime Video", "category": "Streaming", "domains": ["primevideo.com", "amazon.com", "amazon.fr", "amazon.de"], "senders": [], "keywords": ["Prime Video"]},
     {"name": "Tidal", "category": "Streaming", "domains": ["tidal.com"], "senders": [], "keywords": ["TIDAL"]},
     {"name": "Deezer", "category": "Streaming", "domains": ["deezer.com"], "senders": [], "keywords": ["Deezer"]},
-    {"name": "Apple", "category": "Technologie", "domains": ["apple.com", "icloud.com"], "senders": [], "keywords": ["Apple ID", "iCloud"]},
+    {"name": "Apple TV+", "category": "Streaming", "domains": ["apple.com"], "senders": [], "keywords": ["Apple TV+", "Apple TV Plus"]},
+    {"name": "Prime Video", "category": "Streaming", "domains": ["primevideo.com"], "senders": [], "keywords": ["Prime Video"]},
+    {"name": "Paramount+", "category": "Streaming", "domains": ["paramountplus.com", "paramount.com"], "senders": [], "keywords": ["Paramount+"]},
+    {"name": "Crunchyroll", "category": "Streaming", "domains": ["crunchyroll.com"], "senders": [], "keywords": ["Crunchyroll"]},
+    {"name": "DAZN", "category": "Streaming", "domains": ["dazn.com"], "senders": [], "keywords": ["DAZN"]},
 
     # Shopping
     {"name": "Amazon", "category": "Shopping", "domains": ["amazon.com", "amazon.fr", "amazon.de", "amazon.ch", "amazon.it", "amazon.es"], "senders": [], "keywords": ["Amazon", "Your Amazon"]},
@@ -43,6 +52,14 @@ CATALOG = [
     {"name": "Decathlon", "category": "Shopping", "domains": ["decathlon.ch", "decathlon.com"], "senders": [], "keywords": ["Decathlon"]},
     {"name": "Nike", "category": "Shopping", "domains": ["nike.com"], "senders": [], "keywords": ["Nike"]},
     {"name": "Adidas", "category": "Shopping", "domains": ["adidas.com"], "senders": [], "keywords": ["adidas"]},
+    {"name": "Vinted", "category": "Shopping", "domains": ["vinted.ch", "vinted.fr", "vinted.com"], "senders": [], "keywords": ["Vinted"]},
+    {"name": "Leboncoin", "category": "Shopping", "domains": ["leboncoin.fr"], "senders": [], "keywords": ["Leboncoin"]},
+    {"name": "Shein", "category": "Shopping", "domains": ["shein.com"], "senders": [], "keywords": ["SHEIN"]},
+    {"name": "Lidl", "category": "Shopping", "domains": ["lidl.ch", "lidl.com"], "senders": [], "keywords": ["Lidl"]},
+    {"name": "Aldi", "category": "Shopping", "domains": ["aldi.ch", "aldi-suisse.ch"], "senders": [], "keywords": ["ALDI"]},
+    {"name": "H&M", "category": "Shopping", "domains": ["hm.com"], "senders": [], "keywords": ["H&M"]},
+    {"name": "MediaMarkt", "category": "Shopping", "domains": ["mediamarkt.ch", "mediamarkt.com"], "senders": [], "keywords": ["MediaMarkt"]},
+    {"name": "Apple Store", "category": "Shopping", "domains": ["apple.com"], "senders": [], "keywords": ["Apple Store"]},
 
     # Réseaux sociaux / communication
     {"name": "Facebook", "category": "Réseaux sociaux", "domains": ["facebook.com", "facebookmail.com"], "senders": [], "keywords": ["Facebook"]},
@@ -57,6 +74,8 @@ CATALOG = [
     {"name": "WhatsApp", "category": "Communication", "domains": ["whatsapp.com"], "senders": [], "keywords": ["WhatsApp"]},
     {"name": "Zoom", "category": "Communication", "domains": ["zoom.us", "zoom.com"], "senders": [], "keywords": ["Zoom"]},
     {"name": "Slack", "category": "Communication", "domains": ["slack.com"], "senders": [], "keywords": ["Slack"]},
+    {"name": "Signal", "category": "Communication", "domains": ["signal.org"], "senders": [], "keywords": ["Signal"]},
+    {"name": "Teams", "category": "Communication", "domains": ["teams.microsoft.com", "microsoft.com"], "senders": [], "keywords": ["Microsoft Teams"]},
 
     # Finance / paiements
     {"name": "PayPal", "category": "Finance", "domains": ["paypal.com", "paypal.ch"], "senders": [], "keywords": ["PayPal"]},
@@ -68,8 +87,13 @@ CATALOG = [
     {"name": "Raiffeisen", "category": "Finance", "domains": ["raiffeisen.ch"], "senders": [], "keywords": ["Raiffeisen"]},
     {"name": "PostFinance", "category": "Finance", "domains": ["postfinance.ch"], "senders": [], "keywords": ["PostFinance"]},
     {"name": "Credit Suisse", "category": "Finance", "domains": ["credit-suisse.com"], "senders": [], "keywords": ["Credit Suisse"]},
+    {"name": "Neon", "category": "Finance", "domains": ["neon-free.ch", "neon.ch"], "senders": [], "keywords": ["neon"]},
+    {"name": "Yuh", "category": "Finance", "domains": ["yuh.com"], "senders": [], "keywords": ["Yuh"]},
+    {"name": "Payoneer", "category": "Finance", "domains": ["payoneer.com"], "senders": [], "keywords": ["Payoneer"]},
+    {"name": "Klarna", "category": "Finance", "domains": ["klarna.com", "klarna.ch"], "senders": [], "keywords": ["Klarna"]},
+    {"name": "SumUp", "category": "Finance", "domains": ["sumup.com"], "senders": [], "keywords": ["SumUp"]},
 
-    # Technologie / comptes
+    # Technologie / comptes / cloud
     {"name": "Google", "category": "Technologie", "domains": ["google.com", "accounts.google.com"], "senders": [], "keywords": ["Google Account", "Google"]},
     {"name": "Microsoft", "category": "Technologie", "domains": ["microsoft.com", "accountprotection.microsoft.com", "microsoftonline.com"], "senders": [], "keywords": ["Microsoft account", "Microsoft"]},
     {"name": "GitHub", "category": "Développement", "domains": ["github.com", "github.io"], "senders": ["noreply@github.com"], "keywords": ["GitHub"]},
@@ -82,8 +106,18 @@ CATALOG = [
     {"name": "Notion", "category": "Productivité", "domains": ["notion.so", "notion.com"], "senders": [], "keywords": ["Notion"]},
     {"name": "Trello", "category": "Productivité", "domains": ["trello.com"], "senders": [], "keywords": ["Trello"]},
     {"name": "Asana", "category": "Productivité", "domains": ["asana.com"], "senders": [], "keywords": ["Asana"]},
+    {"name": "1Password", "category": "Sécurité", "domains": ["1password.com"], "senders": [], "keywords": ["1Password"]},
+    {"name": "Bitwarden", "category": "Sécurité", "domains": ["bitwarden.com"], "senders": [], "keywords": ["Bitwarden"]},
+    {"name": "Proton", "category": "Sécurité", "domains": ["proton.me", "protonmail.com"], "senders": [], "keywords": ["Proton", "Proton Mail"]},
+    {"name": "Figma", "category": "Productivité", "domains": ["figma.com"], "senders": [], "keywords": ["Figma"]},
+    {"name": "Jira", "category": "Professionnel", "domains": ["atlassian.com", "jira.com"], "senders": [], "keywords": ["Jira"]},
+    {"name": "Confluence", "category": "Professionnel", "domains": ["atlassian.com"], "senders": [], "keywords": ["Confluence"]},
+    {"name": "Cloudflare", "category": "Développement", "domains": ["cloudflare.com"], "senders": [], "keywords": ["Cloudflare"]},
+    {"name": "OVHcloud", "category": "Cloud", "domains": ["ovhcloud.com", "ovh.com"], "senders": [], "keywords": ["OVHcloud", "OVH"]},
+    {"name": "JetBrains", "category": "Développement", "domains": ["jetbrains.com"], "senders": [], "keywords": ["JetBrains"]},
+    {"name": "Docker", "category": "Développement", "domains": ["docker.com"], "senders": [], "keywords": ["Docker"]},
 
-    # Voyages / mobilité
+    # Voyages / mobilité / livraison
     {"name": "Airbnb", "category": "Voyage", "domains": ["airbnb.com", "airbnb.ch"], "senders": [], "keywords": ["Airbnb"]},
     {"name": "Booking.com", "category": "Voyage", "domains": ["booking.com"], "senders": [], "keywords": ["Booking.com", "Booking"]},
     {"name": "Uber", "category": "Mobilité", "domains": ["uber.com"], "senders": [], "keywords": ["Uber"]},
@@ -94,23 +128,38 @@ CATALOG = [
     {"name": "Swiss", "category": "Voyage", "domains": ["swiss.com"], "senders": [], "keywords": ["SWISS"]},
     {"name": "EasyJet", "category": "Voyage", "domains": ["easyjet.com"], "senders": [], "keywords": ["easyJet"]},
     {"name": "Ryanair", "category": "Voyage", "domains": ["ryanair.com"], "senders": [], "keywords": ["Ryanair"]},
+    {"name": "Lufthansa", "category": "Voyage", "domains": ["lufthansa.com"], "senders": [], "keywords": ["Lufthansa"]},
+    {"name": "Air France", "category": "Voyage", "domains": ["airfrance.fr", "airfrance.com"], "senders": [], "keywords": ["Air France"]},
+    {"name": "FlixBus", "category": "Transport", "domains": ["flixbus.com", "flixbus.ch"], "senders": [], "keywords": ["FlixBus"]},
+    {"name": "BlaBlaCar", "category": "Mobilité", "domains": ["blablacar.com", "blablacar.fr"], "senders": [], "keywords": ["BlaBlaCar"]},
 
     # Télécom / services suisses
     {"name": "Swisscom", "category": "Télécom", "domains": ["swisscom.ch"], "senders": [], "keywords": ["Swisscom"]},
     {"name": "Sunrise", "category": "Télécom", "domains": ["sunrise.ch"], "senders": [], "keywords": ["Sunrise"]},
     {"name": "Salt", "category": "Télécom", "domains": ["salt.ch"], "senders": [], "keywords": ["Salt"]},
-    {"name": "Digitec Galaxus", "category": "Shopping", "domains": ["galaxus.ch", "digitec.ch"], "senders": [], "keywords": ["Digitec Galaxus"]},
+    {"name": "La Poste Suisse", "category": "Services", "domains": ["post.ch"], "senders": [], "keywords": ["Poste", "Die Post", "Swiss Post"]},
+    {"name": "CSS", "category": "Assurance", "domains": ["css.ch"], "senders": [], "keywords": ["CSS Assurance", "CSS"]},
+    {"name": "Helsana", "category": "Assurance", "domains": ["helsana.ch"], "senders": [], "keywords": ["Helsana"]},
+    {"name": "Groupe Mutuel", "category": "Assurance", "domains": ["groupemutuel.ch"], "senders": [], "keywords": ["Groupe Mutuel"]},
+    {"name": "Visana", "category": "Assurance", "domains": ["visana.ch"], "senders": [], "keywords": ["Visana"]},
+    {"name": "AXA", "category": "Assurance", "domains": ["axa.ch", "axa.com"], "senders": [], "keywords": ["AXA"]},
+    {"name": "Zurich Assurance", "category": "Assurance", "domains": ["zurich.com", "zurich.ch"], "senders": [], "keywords": ["Zurich Assurance"]},
+    {"name": "Mobiliar", "category": "Assurance", "domains": ["mobiliar.ch"], "senders": [], "keywords": ["Mobiliar", "Mobilière"]},
 
-    # Services / autres
-    {"name": "ChatGPT", "category": "Applications", "domains": ["openai.com", "chatgpt.com"], "senders": [], "keywords": ["ChatGPT", "OpenAI"]},
-    {"name": "OpenAI", "category": "Applications", "domains": ["openai.com"], "senders": [], "keywords": ["OpenAI"]},
-    {"name": "Payoneer", "category": "Finance", "domains": ["payoneer.com"], "senders": [], "keywords": ["Payoneer"]},
-    {"name": "DocuSign", "category": "Professionnel", "domains": ["docusign.net", "docusign.com"], "senders": [], "keywords": ["DocuSign"]},
+    # Emploi / professionnel
     {"name": "Indeed", "category": "Emploi", "domains": ["indeed.com", "indeed.ch"], "senders": [], "keywords": ["Indeed"]},
     {"name": "LinkedIn Jobs", "category": "Emploi", "domains": ["linkedin.com"], "senders": [], "keywords": ["LinkedIn Jobs"]},
     {"name": "Malt", "category": "Professionnel", "domains": ["malt.com"], "senders": [], "keywords": ["Malt"]},
     {"name": "Fiverr", "category": "Professionnel", "domains": ["fiverr.com"], "senders": [], "keywords": ["Fiverr"]},
     {"name": "Upwork", "category": "Professionnel", "domains": ["upwork.com"], "senders": [], "keywords": ["Upwork"]},
-    {"name": "Vinted", "category": "Shopping", "domains": ["vinted.ch", "vinted.fr", "vinted.com"], "senders": [], "keywords": ["Vinted"]},
-    {"name": "Leboncoin", "category": "Shopping", "domains": ["leboncoin.fr"], "senders": [], "keywords": ["Leboncoin"]},
+    {"name": "DocuSign", "category": "Professionnel", "domains": ["docusign.net", "docusign.com"], "senders": [], "keywords": ["DocuSign"]},
+    {"name": "Indeed Jobs", "category": "Emploi", "domains": ["indeed.com"], "senders": [], "keywords": ["Indeed Jobs"]},
+
+    # Applications / IA / autres
+    {"name": "ChatGPT", "category": "Applications", "domains": ["openai.com", "chatgpt.com"], "senders": [], "keywords": ["ChatGPT", "OpenAI"]},
+    {"name": "OpenAI", "category": "Applications", "domains": ["openai.com"], "senders": [], "keywords": ["OpenAI"]},
+    {"name": "CapCut", "category": "Applications", "domains": ["capcut.com", "bytedance.com"], "senders": [], "keywords": ["CapCut"]},
+    {"name": "Duolingo", "category": "Applications", "domains": ["duolingo.com"], "senders": [], "keywords": ["Duolingo"]},
+    {"name": "Grammarly", "category": "Productivité", "domains": ["grammarly.com"], "senders": [], "keywords": ["Grammarly"]},
+    {"name": "Miro", "category": "Productivité", "domains": ["miro.com"], "senders": [], "keywords": ["Miro"]},
 ]
