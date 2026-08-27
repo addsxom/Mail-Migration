@@ -17,7 +17,6 @@ from app.database.repositories import get_accounts, get_account_services
 
 MIGRATION_STATUSES = ["À vérifier", "À migrer", "Migré", "Abandonné"]
 
-
 _ICON_CACHE = {}
 
 
@@ -40,7 +39,6 @@ def _service_icon(name, category=""):
     if key in _ICON_CACHE:
         return _ICON_CACHE[key]
 
-    # If real local logos are added later, they automatically take priority.
     assets_dir = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
     for suffix in (".png", ".jpg", ".jpeg", ".svg"):
         candidate = assets_dir / f"{key[0]}{suffix}"
@@ -49,7 +47,6 @@ def _service_icon(name, category=""):
             _ICON_CACHE[key] = icon
             return icon
 
-    # Clean fallback avatar: initials inside a small dark circular badge.
     size = 32
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -240,7 +237,12 @@ class ServiceDetailsDialog(QDialog):
 
     @staticmethod
     def _format_signals(signals):
-        labels = {"domain": "✓ Domaine correspondant", "sender": "✓ Expéditeur correspondant", "subject": "✓ Sujet correspondant", "keyword": "✓ Mot-clé correspondant"}
+        labels = {
+            "domain": "✓ Domaine correspondant",
+            "sender": "✓ Expéditeur correspondant",
+            "subject": "✓ Sujet correspondant",
+            "keyword": "✓ Mot-clé correspondant",
+        }
         return "Aucun signal détaillé disponible" if not signals else "\n".join(labels.get(signal, f"✓ {signal}") for signal in signals)
 
     @staticmethod
@@ -272,40 +274,97 @@ class ServiceDetailsDialog(QDialog):
 
 
 class ServiceTableDelegate(QStyledItemDelegate):
+    ICON_SIZE = 28
+    ICON_TEXT_GAP = 8
+    SIDE_PADDING = 12
+
     def paint(self, painter, option, index):
         table = self.parent()
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
+
         if index.column() == 0:
-            rect = QRectF(4, option.rect.top() + 5, max(0.0, table.viewport().width() - 8), max(0.0, option.rect.height() - 10))
+            rect = QRectF(
+                4,
+                option.rect.top() + 5,
+                max(0.0, table.viewport().width() - 8),
+                max(0.0, option.rect.height() - 10),
+            )
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
+
         text = index.data(Qt.DisplayRole)
         if text is not None:
-            icon = index.data(Qt.DecorationRole)
-            if isinstance(icon, QIcon) and not icon.isNull():
-                icon_size = 28
-                icon_rect = QRectF(
-                    option.rect.center().x() - (QFontMetrics(option.font).horizontalAdvance(str(text)) + icon_size + 8) / 2,
-                    option.rect.center().y() - icon_size / 2,
-                    icon_size,
-                    icon_size,
-                )
-                icon.paint(painter, icon_rect.toRect(), Qt.AlignCenter, QIcon.Normal, QIcon.Off)
-                text_width = QFontMetrics(option.font).horizontalAdvance(str(text))
-                text_rect = QRectF(
-                    icon_rect.right() + 8,
-                    option.rect.top(),
-                    text_width + 2,
-                    option.rect.height(),
-                )
-            else:
-                text_rect = option.rect.adjusted(10, 0, -10, 0)
             painter.setPen(QColor(231, 234, 240))
             painter.setFont(option.font)
-            display_text = QFontMetrics(option.font).elidedText(str(text), Qt.ElideRight, max(0, int(text_rect.width())))
-            painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, display_text)
+            metrics = QFontMetrics(option.font)
+            icon = index.data(Qt.DecorationRole)
+
+            if isinstance(icon, QIcon) and not icon.isNull():
+                icon_size = self.ICON_SIZE
+                max_text_width = max(
+                    20,
+                    option.rect.width()
+                    - (self.SIDE_PADDING * 2)
+                    - icon_size
+                    - self.ICON_TEXT_GAP,
+                )
+                display_text = metrics.elidedText(
+                    str(text),
+                    Qt.ElideRight,
+                    int(max_text_width),
+                )
+                text_width = min(
+                    metrics.horizontalAdvance(display_text),
+                    int(max_text_width),
+                )
+                group_width = icon_size + self.ICON_TEXT_GAP + text_width
+                start_x = option.rect.center().x() - (group_width / 2)
+                min_x = option.rect.left() + self.SIDE_PADDING
+                max_x = option.rect.right() - self.SIDE_PADDING - group_width
+                start_x = max(min_x, min(start_x, max_x))
+
+                icon_rect = QRectF(
+                    start_x,
+                    option.rect.center().y() - (icon_size / 2),
+                    icon_size,
+                    icon_size,
+                )
+                icon.paint(
+                    painter,
+                    icon_rect.toRect(),
+                    Qt.AlignCenter,
+                    QIcon.Normal,
+                    QIcon.Off,
+                )
+
+                text_rect = QRectF(
+                    icon_rect.right() + self.ICON_TEXT_GAP,
+                    option.rect.top(),
+                    text_width + 1,
+                    option.rect.height(),
+                )
+                painter.drawText(
+                    text_rect,
+                    Qt.AlignVCenter | Qt.AlignLeft,
+                    display_text,
+                )
+            else:
+                text_rect = option.rect.adjusted(
+                    self.SIDE_PADDING, 0, -self.SIDE_PADDING, 0
+                )
+                display_text = metrics.elidedText(
+                    str(text),
+                    Qt.ElideRight,
+                    max(0, text_rect.width()),
+                )
+                painter.drawText(
+                    text_rect,
+                    Qt.AlignVCenter | Qt.AlignHCenter,
+                    display_text,
+                )
+
         painter.restore()
 
 
@@ -320,7 +379,12 @@ class ServiceTable(QTableWidget):
                 break
             if y + height < 0:
                 continue
-            rect = QRectF(4, y + 5, max(0.0, self.viewport().width() - 8), max(0.0, height - 10))
+            rect = QRectF(
+                4,
+                y + 5,
+                max(0.0, self.viewport().width() - 8),
+                max(0.0, height - 10),
+            )
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
@@ -743,7 +807,13 @@ class ServicesPage(QWidget):
             self._set_rows(rows, details)
 
     def cleanup_scanned_services(self):
-        answer = QMessageBox.question(self, "Nettoyage des services", "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        answer = QMessageBox.question(
+            self,
+            "Nettoyage des services",
+            "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
         if answer != QMessageBox.Yes:
             return
         session = get_session()
