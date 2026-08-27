@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGridLayout, QFrame, QProgressBar
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QFrame, QProgressBar
 from app.database.database import get_session
 from app.database.repositories import dashboard_counts, get_account
 
@@ -86,7 +86,7 @@ class DashboardPage(QWidget):
 
         session = get_session()
         try:
-            accounts, services, migrated, abandoned, to_check, to_migrate = dashboard_counts(session)
+            _accounts, services, migrated, abandoned, to_check, to_migrate = dashboard_counts(session)
             account = get_account(session, self.active_account_id) if self.active_account_id else None
         finally:
             session.close()
