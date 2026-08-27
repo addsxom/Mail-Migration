@@ -171,7 +171,8 @@ class ServiceRowDelegate(QStyledItemDelegate):
             rect = option.rect.adjusted(10, 0, -10, 0)
             painter.setPen(QColor(231, 234, 240))
             painter.setFont(option.font)
-            painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeft, str(text))
+            text = painter.fontMetrics().elidedText(str(text), Qt.ElideRight, max(0, rect.width()))
+            painter.drawText(rect, Qt.AlignVCenter | Qt.AlignLeft, text)
 
         painter.restore()
 
