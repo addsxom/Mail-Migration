@@ -189,9 +189,6 @@ class ServiceTableDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
 
-        # Draw the background only once, from the first cell, across the
-        # complete viewport width. This prevents every column from looking
-        # like a separate card and gives the row one consistent hover color.
         if column == 0:
             row_rect = QRectF(
                 3,
@@ -204,7 +201,6 @@ class ServiceTableDelegate(QStyledItemDelegate):
             path.addRoundedRect(row_rect, 9, 9)
             painter.fillPath(path, bg)
 
-        # Let Qt render text only; the item itself has no visible background.
         text_option = QStyleOptionViewItem(option)
         text_option.state &= ~QStyle.State_MouseOver
         text_option.state &= ~QStyle.State_Selected
@@ -240,21 +236,47 @@ class ServicesPage(QWidget):
         self.scan_label.setObjectName("muted")
         layout.addWidget(self.scan_label)
 
+        search_container = QFrame()
+        search_container.setObjectName("serviceSearchContainer")
+        search_container.setStyleSheet("""
+            QFrame#serviceSearchContainer {
+                border: 1px solid #303846;
+                border-radius: 10px;
+                background: #171b22;
+            }
+            QFrame#serviceSearchContainer:focus-within {
+                border: 1px solid #58677d;
+            }
+            QLabel#serviceSearchIcon {
+                border: none;
+                background: transparent;
+                padding-left: 12px;
+                padding-right: 4px;
+                font-size: 17px;
+            }
+            QLineEdit#serviceSearchInput {
+                border: none;
+                background: transparent;
+                padding: 0 10px 0 4px;
+            }
+        """)
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(0)
+
+        search_icon = QLabel("🔎")
+        search_icon.setObjectName("serviceSearchIcon")
+        search_icon.setAlignment(Qt.AlignCenter)
+        search_layout.addWidget(search_icon)
+
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔎  Rechercher un service, compte ou catégorie...")
+        self.search_input.setObjectName("serviceSearchInput")
+        self.search_input.setPlaceholderText("Rechercher un service, compte ou catégorie...")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.setMinimumHeight(38)
         self.search_input.textChanged.connect(self._filter_services)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #303846;
-                border-radius: 10px;
-                padding: 0 12px;
-                background: #171b22;
-            }
-            QLineEdit:focus { border: 1px solid #58677d; }
-        """)
-        layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_input, 1)
+        layout.addWidget(search_container)
 
         actions = QHBoxLayout()
         actions.addStretch()
@@ -281,17 +303,28 @@ class ServicesPage(QWidget):
             QTableWidget::item {
                 background: transparent;
                 border: none;
+                outline: none;
             }
             QTableWidget::item:selected {
                 background: transparent;
+                color: inherit;
+            }
+            QTableWidget::item:focus {
+                outline: none;
             }
         """)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(50)
         self.table.setItemDelegate(ServiceTableDelegate(self.table))
+        self.table.cellClicked.connect(self._clear_table_click_state)
         self.table.cellDoubleClicked.connect(self._open_details_for_row)
         self.table.viewport().installEventFilter(self)
         layout.addWidget(self.table)
+
+    def _clear_table_click_state(self, _row, _column):
+        self.table.clearSelection()
+        self.table.setCurrentItem(None)
+        self.table.viewport().update()
 
     def eventFilter(self, watched, event):
         if watched is self.table.viewport():
@@ -446,6 +479,8 @@ class ServicesPage(QWidget):
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
                 self.table.setItem(r, c, item)
         self.hovered_row = -1
+        self.table.clearSelection()
+        self.table.setCurrentItem(None)
         self.table.viewport().update()
 
     def refresh(self):
