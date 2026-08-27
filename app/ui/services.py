@@ -17,8 +17,8 @@ class ServiceDetailsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"Détails — {details.get('name', 'Service')}")
         self.setModal(True)
-        self.setMinimumWidth(500)
-        self.setMaximumWidth(650)
+        self.setMinimumWidth(540)
+        self.setMaximumWidth(700)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
@@ -32,6 +32,7 @@ class ServiceDetailsDialog(QDialog):
             QLabel#serviceDetailsSubtitle { color: #9AA2AF; }
             QLabel.detailLabel { color: #9AA2AF; font-size: 12px; }
             QLabel.signalValue { color: #E7EAF0; }
+            QLabel.scoreValue { font-size: 18px; font-weight: 700; }
             QPushButton { padding: 8px 16px; border-radius: 8px; }
         """)
 
@@ -70,20 +71,43 @@ class ServiceDetailsDialog(QDialog):
             value = QLabel(str(value_text or "—"))
             value.setWordWrap(True)
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            if label_text == "Confiance":
+                value.setObjectName("scoreValue")
             grid.addWidget(label, row, 0, Qt.AlignTop)
             grid.addWidget(value, row, 1)
 
-        # Phase 4.1 : afficher les signaux qui ont conduit à la détection.
-        signals = details.get("signals") or []
-        signal_text = self._format_signals(signals)
-        label = QLabel("Signaux de détection")
-        label.setProperty("class", "detailLabel")
-        value = QLabel(signal_text)
-        value.setObjectName("signalValue")
-        value.setWordWrap(True)
-        value.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        grid.addWidget(label, len(fields), 0, Qt.AlignTop)
-        grid.addWidget(value, len(fields), 1)
+        row = len(fields)
+        signal_label = QLabel("Signaux de détection")
+        signal_label.setProperty("class", "detailLabel")
+        signal_value = QLabel(self._format_signals(details.get("signals") or []))
+        signal_value.setObjectName("signalValue")
+        signal_value.setWordWrap(True)
+        signal_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        grid.addWidget(signal_label, row, 0, Qt.AlignTop)
+        grid.addWidget(signal_value, row, 1)
+
+        # Phase 4.2 : contribution de chaque signal au score.
+        row += 1
+        score_label = QLabel("Détail du score")
+        score_label.setProperty("class", "detailLabel")
+        score_value = QLabel(self._format_score_breakdown(details.get("signals") or []))
+        score_value.setObjectName("signalValue")
+        score_value.setWordWrap(True)
+        score_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        grid.addWidget(score_label, row, 0, Qt.AlignTop)
+        grid.addWidget(score_value, row, 1)
+
+        # Fiabilité de la source : contexte d'authentification, sans en faire
+        # une preuve absolue de légitimité.
+        row += 1
+        reliability_label = QLabel("Fiabilité de la source")
+        reliability_label.setProperty("class", "detailLabel")
+        reliability_value = QLabel(self._format_reliability(details.get("reliability") or {}))
+        reliability_value.setObjectName("signalValue")
+        reliability_value.setWordWrap(True)
+        reliability_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        grid.addWidget(reliability_label, row, 0, Qt.AlignTop)
+        grid.addWidget(reliability_value, row, 1)
 
         card_layout.addLayout(grid)
         root.addWidget(card)
@@ -115,6 +139,43 @@ class ServiceDetailsDialog(QDialog):
         if not signals:
             return "Aucun signal détaillé disponible"
         return "\n".join(labels.get(signal, f"✓ {signal}") for signal in signals)
+
+    @staticmethod
+    def _format_score_breakdown(signals):
+        weights = {"domain": 50, "sender": 25, "subject": 15, "keyword": 10}
+        labels = {
+            "domain": "Domaine exact",
+            "sender": "Expéditeur connu",
+            "subject": "Sujet correspondant",
+            "keyword": "Mot-clé correspondant",
+        }
+        unique = set(signals)
+        lines = [
+            f"{'✓' if key in unique else '✗'} {labels[key]}    +{weights[key] if key in unique else 0}"
+            for key in ("domain", "sender", "subject", "keyword")
+        ]
+        total = min(100, sum(weights[key] for key in unique if key in weights))
+        return "\n".join(lines) + f"\n────────────────────────\nTotal                    {total} %"
+
+    @staticmethod
+    def _format_reliability(reliability):
+        if not reliability:
+            return "Aucune information de fiabilité disponible"
+
+        lines = []
+        lines.append("✓ Domaine officiel" if reliability.get("official_domain") else "✗ Domaine officiel non confirmé")
+        lines.append("✓ Expéditeur connu" if reliability.get("known_sender") else "✗ Expéditeur non reconnu")
+        lines.append("")
+        lines.append("Authentification")
+
+        if not reliability.get("authentication_available"):
+            lines.extend(["○ SPF — non disponible", "○ DKIM — non disponible", "○ DMARC — non disponible"])
+        else:
+            for key, label in (("spf", "SPF"), ("dkim", "DKIM"), ("dmarc", "DMARC")):
+                value = reliability.get(key)
+                lines.append(f"{'✓' if value else '✗'} {label} — {'pass' if value else 'échec'}")
+
+        return "\n".join(lines)
 
 
 class ServicesPage(QWidget):
@@ -167,6 +228,48 @@ class ServicesPage(QWidget):
         self.scan_label.setText("")
         self.refresh()
 
+    @staticmethod
+    def _get_account_email(account_id):
+        session = get_session()
+        try:
+            account = session.get(GoogleAccount, account_id)
+            return account.email if account else ""
+        finally:
+            session.close()
+
+    def _open_details_for_row(self, row, _column):
+        if not (0 <= row < len(self.row_details)):
+            return
+        details = dict(self.row_details[row])
+        session = get_session()
+        try:
+            account_service_id = details.get("account_service_id")
+            if account_service_id:
+                traces = session.scalars(select(ScanTrace).where(ScanTrace.account_service_id == account_service_id)).all()
+                signals = set(details.get("signals") or [])
+                reliability = dict(details.get("reliability") or {})
+                for trace in traces:
+                    if trace.signal_type:
+                        signals.add(trace.signal_type)
+                    if trace.signal_value:
+                        signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
+                details["signals"] = sorted(signals)
+                if not reliability:
+                    # Older persisted traces may not contain authentication data.
+                    # Keep the UI honest rather than inventing SPF/DKIM/DMARC results.
+                    reliability = {
+                        "official_domain": "domain" in signals,
+                        "known_sender": "sender" in signals,
+                        "authentication_available": False,
+                        "spf": None,
+                        "dkim": None,
+                        "dmarc": None,
+                    }
+                    details["reliability"] = reliability
+        finally:
+            session.close()
+        ServiceDetailsDialog(details, self).exec()
+
     def start_live_scan(self, account_id):
         if not self.live_scan:
             self.live_scan = True
@@ -179,15 +282,6 @@ class ServicesPage(QWidget):
             self.live_account_emails[account_id] = email
         self.scan_label.setText(f"● Scan en cours — {len(self.live_account_ids)} compte(s) — résultats en temps réel")
         self._render_live_rows()
-
-    @staticmethod
-    def _get_account_email(account_id):
-        session = get_session()
-        try:
-            account = session.get(GoogleAccount, account_id)
-            return account.email if account else ""
-        finally:
-            session.close()
 
     def update_live_detection(self, account_id, data):
         if not self.live_scan or account_id not in self.live_account_ids:
@@ -208,6 +302,7 @@ class ServicesPage(QWidget):
             "first_detected_at": data.get("first_detected_at"),
             "last_detected_at": data.get("last_detected_at"),
             "signals": data.get("signals", []),
+            "reliability": data.get("reliability", {}),
         }
         self._render_live_rows()
 
@@ -247,29 +342,6 @@ class ServicesPage(QWidget):
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
                 self.table.setItem(r, c, item)
 
-    def _open_details_for_row(self, row, _column):
-        if not (0 <= row < len(self.row_details)):
-            return
-        details = dict(self.row_details[row])
-
-        # Après un scan terminé, récupérer les signaux depuis les traces persistées.
-        account_service_id = details.get("account_service_id")
-        if account_service_id and not details.get("signals"):
-            session = get_session()
-            try:
-                traces = session.scalars(select(ScanTrace).where(ScanTrace.account_service_id == account_service_id)).all()
-                signals = set()
-                for trace in traces:
-                    if trace.signal_type:
-                        signals.add(trace.signal_type)
-                    if trace.signal_value:
-                        signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
-                details["signals"] = sorted(signals)
-            finally:
-                session.close()
-
-        ServiceDetailsDialog(details, self).exec()
-
     def refresh(self):
         session = get_session()
         rows, details, selected_account = [], [], None
@@ -297,6 +369,7 @@ class ServicesPage(QWidget):
                         "first_detected_at": link.first_detected_at,
                         "last_detected_at": link.last_detected_at,
                         "signals": [],
+                        "reliability": {},
                     })
                     rows.append((account.email, service.name, service.category, f"{link.confidence_score:.0f} %", str(link.trace_count), link.status))
         finally:
