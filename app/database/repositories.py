@@ -1,5 +1,5 @@
 import json
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, or_
 from .models import GoogleAccount, Service, AccountService, ScanHistory, ScanTrace
 
 
@@ -89,6 +89,14 @@ def dashboard_counts(session):
         select(func.count(AccountService.id)).where(AccountService.status == "Abandonné")
     ) or 0
     to_check = session.scalar(
-        select(func.count(AccountService.id)).where(AccountService.status == "À vérifier")
+        select(func.count(AccountService.id)).where(
+            or_(
+                AccountService.status == "À vérifier",
+                AccountService.status.is_(None),
+            )
+        )
     ) or 0
-    return accounts, services, migrated, abandoned, to_check
+    to_migrate = session.scalar(
+        select(func.count(AccountService.id)).where(AccountService.status == "À migrer")
+    ) or 0
+    return accounts, services, migrated, abandoned, to_check, to_migrate
