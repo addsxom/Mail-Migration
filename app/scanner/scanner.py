@@ -13,53 +13,59 @@ class ScanCancelled(Exception):
     pass
 
 
-def _persist_partial(session, account, detections):
-    """Persist the current scan state so cancellation never loses completed work."""
-    for data in detections.values():
-        service = get_or_create_service(session, data["definition"])
-        link = session.scalar(
-            select(AccountService).where(
-                AccountService.account_id == account.id,
-                AccountService.service_id == service.id,
-            )
+def _persist_detection(session, account, data):
+    service = get_or_create_service(session, data["definition"])
+    link = session.scalar(
+        select(AccountService).where(
+            AccountService.account_id == account.id,
+            AccountService.service_id == service.id,
         )
-        now = datetime.now(timezone.utc)
-        if not link:
-            link = AccountService(
-                account_id=account.id,
-                service_id=service.id,
-                confidence_score=data["score"],
-                trace_count=0,
-                first_detected_at=now,
-                last_detected_at=now,
-                status="À vérifier",
-            )
-            session.add(link)
-            session.flush()
-        else:
-            link.confidence_score = max(link.confidence_score, data["score"])
-            link.last_detected_at = now
+    )
+    now = datetime.now(timezone.utc)
 
-        existing_ids = {
-            row.message_id
-            for row in session.scalars(
-                select(ScanTrace).where(ScanTrace.account_service_id == link.id)
-            )
-        }
-        signal = sorted(data["signals"])[0] if data["signals"] else "unknown"
-        for message_id in data["message_ids"]:
-            if message_id and message_id not in existing_ids:
-                session.add(
-                    ScanTrace(
-                        account_service_id=link.id,
-                        message_id=message_id,
-                        signal_type=signal,
-                        signal_value=", ".join(sorted(data["signals"])),
-                    )
+    if not link:
+        link = AccountService(
+            account_id=account.id,
+            service_id=service.id,
+            confidence_score=data["score"],
+            trace_count=0,
+            first_detected_at=now,
+            last_detected_at=now,
+            status="À vérifier",
+        )
+        session.add(link)
+        session.flush()
+    else:
+        link.confidence_score = max(link.confidence_score, data["score"])
+        link.last_detected_at = now
+
+    existing_ids = {
+        row.message_id
+        for row in session.scalars(
+            select(ScanTrace).where(ScanTrace.account_service_id == link.id)
+        )
+    }
+    signal = sorted(data["signals"])[0] if data["signals"] else "unknown"
+
+    for message_id in data["message_ids"]:
+        if message_id and message_id not in existing_ids:
+            session.add(
+                ScanTrace(
+                    account_service_id=link.id,
+                    message_id=message_id,
+                    signal_type=signal,
+                    signal_value=", ".join(sorted(data["signals"])),
                 )
-                existing_ids.add(message_id)
-        link.trace_count = len(existing_ids)
+            )
+            existing_ids.add(message_id)
 
+    link.trace_count = len(existing_ids)
+    return link
+
+
+def _persist_partial(session, account, detections):
+    for data in detections.values():
+        _persist_detection(session, account, data)
     session.commit()
 
 
@@ -122,22 +128,33 @@ def scan_account(
                 if message_id and message_id not in item["message_ids"]:
                     item["message_ids"].append(message_id)
 
+                link = _persist_detection(session, account, item)
+                session.commit()
+
                 if detection_callback:
                     detection_callback(
                         {
                             "account_id": account.id,
+                            "account_service_id": link.id,
                             "account_email": account.email,
                             "name": item["definition"]["name"],
                             "service_id": item["definition"].get("name"),
                             "category": item["definition"].get("category", "Autre"),
+                            "subcategory": item["definition"].get("subcategory"),
                             "score": item["score"],
                             "count": item["count"],
+                            "status": link.status or "À vérifier",
+                            "priority": link.priority or "Normale",
+                            "destination_email": link.destination_email,
+                            "notes": link.notes,
+                            "first_detected_at": link.first_detected_at,
+                            "last_detected_at": link.last_detected_at,
                             "signals": sorted(item["signals"]),
                         }
                     )
 
             if messages_scanned - last_persist >= 50:
-                _persist_partial(session, account, detections)
+                session.commit()
                 last_persist = messages_scanned
 
             if progress:
@@ -157,7 +174,6 @@ def scan_account(
         return messages_scanned, len(detections)
 
     except ScanCancelled:
-        # Partial scan data was already committed. Only mark the history as cancelled.
         session.rollback()
         history = session.get(ScanHistory, history.id)
         if history:
