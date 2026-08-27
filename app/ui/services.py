@@ -13,7 +13,6 @@ from app.database.database import get_session
 from app.database.models import GoogleAccount, AccountService, ScanTrace, Service
 from app.database.repositories import get_accounts, get_account_services
 
-
 MIGRATION_STATUSES = ["À vérifier", "À migrer", "Migré", "Abandonné"]
 
 
@@ -58,7 +57,6 @@ class ServiceDetailsDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(18)
         grid.setVerticalSpacing(10)
-
         fields = [
             ("Compte Gmail", details.get("account_email", "—")),
             ("Confiance", self._format_score(details.get("score"))),
@@ -141,18 +139,14 @@ class ServiceDetailsDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        cancel_button = QPushButton("Annuler")
-        cancel_button.clicked.connect(self.reject)
-        buttons.addWidget(cancel_button)
-        self.save_button = QPushButton("Enregistrer")
-        self.save_button.setDefault(True)
-        self.save_button.clicked.connect(self._save)
-        buttons.addWidget(self.save_button)
+        cancel = QPushButton("Annuler")
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+        save = QPushButton("Enregistrer")
+        save.setDefault(True)
+        save.clicked.connect(self._save)
+        buttons.addWidget(save)
         root.addLayout(buttons)
-
-        if not self.account_service_id:
-            self.save_button.setEnabled(False)
-            self.save_button.setToolTip("Disponible après l'enregistrement du service")
 
     def _save(self):
         if not self.account_service_id:
@@ -164,14 +158,10 @@ class ServiceDetailsDialog(QDialog):
             if not link:
                 QMessageBox.warning(self, "Migration", "Impossible de retrouver ce service.")
                 return
-
-            status = self.status_combo.currentText().strip()
-            destination = self.destination_input.text().strip() or None
-            notes = self.notes_input.toPlainText().strip() or None
-
+            status = self.status_combo.currentText().strip() or "À vérifier"
             link.status = status
-            link.destination_email = destination
-            link.notes = notes
+            link.destination_email = self.destination_input.text().strip() or None
+            link.notes = self.notes_input.toPlainText().strip() or None
             link.migrated_at = datetime.now(timezone.utc) if status == "Migré" else None
             session.commit()
         except Exception as exc:
@@ -196,30 +186,15 @@ class ServiceDetailsDialog(QDialog):
 
     @staticmethod
     def _format_signals(signals):
-        labels = {
-            "domain": "✓ Domaine correspondant",
-            "sender": "✓ Expéditeur correspondant",
-            "subject": "✓ Sujet correspondant",
-            "keyword": "✓ Mot-clé correspondant",
-        }
-        if not signals:
-            return "Aucun signal détaillé disponible"
-        return "\n".join(labels.get(signal, f"✓ {signal}") for signal in signals)
+        labels = {"domain": "✓ Domaine correspondant", "sender": "✓ Expéditeur correspondant", "subject": "✓ Sujet correspondant", "keyword": "✓ Mot-clé correspondant"}
+        return "Aucun signal détaillé disponible" if not signals else "\n".join(labels.get(signal, f"✓ {signal}") for signal in signals)
 
     @staticmethod
     def _format_score_breakdown(signals):
         weights = {"domain": 50, "sender": 25, "subject": 15, "keyword": 10}
-        labels = {
-            "domain": "Domaine exact",
-            "sender": "Expéditeur connu",
-            "subject": "Sujet correspondant",
-            "keyword": "Mot-clé correspondant",
-        }
+        labels = {"domain": "Domaine exact", "sender": "Expéditeur connu", "subject": "Sujet correspondant", "keyword": "Mot-clé correspondant"}
         unique = set(signals)
-        lines = [
-            f"{'✓' if key in unique else '✗'} {labels[key]}    +{weights[key] if key in unique else 0}"
-            for key in ("domain", "sender", "subject", "keyword")
-        ]
+        lines = [f"{'✓' if key in unique else '✗'} {labels[key]}    +{weights[key] if key in unique else 0}" for key in ("domain", "sender", "subject", "keyword")]
         total = min(100, sum(weights[key] for key in unique if key in weights))
         return "\n".join(lines) + f"\n────────────────────────\nTotal                    {total} %"
 
@@ -248,9 +223,9 @@ class ServiceTableDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         if index.column() == 0:
-            row_rect = QRectF(4, option.rect.top() + 5, max(0.0, table.viewport().width() - 8), max(0.0, option.rect.height() - 10))
+            rect = QRectF(4, option.rect.top() + 5, max(0.0, table.viewport().width() - 8), max(0.0, option.rect.height() - 10))
             path = QPainterPath()
-            path.addRoundedRect(row_rect, 10, 10)
+            path.addRoundedRect(rect, 10, 10)
             painter.fillPath(path, QColor(29, 34, 43))
         text = index.data(Qt.DisplayRole)
         if text is not None:
@@ -266,11 +241,7 @@ class ServiceTable(QTableWidget):
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.Antialiasing, True)
-        bg = QColor(29, 34, 43)
-        first_row = self.rowAt(0)
-        if first_row < 0:
-            first_row = 0
-        for row in range(first_row, self.rowCount()):
+        for row in range(self.rowCount()):
             y = self.rowViewportPosition(row)
             height = self.rowHeight(row)
             if y > self.viewport().height():
@@ -280,7 +251,7 @@ class ServiceTable(QTableWidget):
             rect = QRectF(4, y + 5, max(0.0, self.viewport().width() - 8), max(0.0, height - 10))
             path = QPainterPath()
             path.addRoundedRect(rect, 10, 10)
-            painter.fillPath(path, bg)
+            painter.fillPath(path, QColor(29, 34, 43))
         painter.end()
         super().paintEvent(event)
 
@@ -292,24 +263,17 @@ class ServicesPage(QWidget):
         self.live_scan = False
         self.live_account_ids = set()
         self.live_rows = {}
-        self.row_details = []
         self.live_account_emails = {}
         self._all_rows = []
         self._all_details = []
+        self.row_details = []
+        self._status_filters = set()
+        self._category_filter = "Toutes les catégories"
 
         layout = QVBoxLayout(self)
         title = QLabel("Inventaire des services")
         title.setObjectName("title")
         layout.addWidget(title)
-        self.account_label = QLabel("Tous les comptes")
-        self.account_label.setObjectName("muted")
-        layout.addWidget(self.account_label)
-        self.scan_label = QLabel("")
-        self.scan_label.setObjectName("muted")
-        layout.addWidget(self.scan_label)
-        self.migration_summary = QLabel("")
-        self.migration_summary.setObjectName("muted")
-        layout.addWidget(self.migration_summary)
 
         search_container = QFrame()
         search_container.setObjectName("serviceSearchContainer")
@@ -323,10 +287,10 @@ class ServicesPage(QWidget):
         search_layout = QHBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(0)
-        search_icon = QLabel("🔎")
-        search_icon.setObjectName("serviceSearchIcon")
-        search_icon.setAlignment(Qt.AlignCenter)
-        search_layout.addWidget(search_icon)
+        icon = QLabel("🔎")
+        icon.setObjectName("serviceSearchIcon")
+        icon.setAlignment(Qt.AlignCenter)
+        search_layout.addWidget(icon)
         self.search_input = QLineEdit()
         self.search_input.setObjectName("serviceSearchInput")
         self.search_input.setPlaceholderText("Rechercher un service, compte ou catégorie...")
@@ -337,9 +301,26 @@ class ServicesPage(QWidget):
         layout.addWidget(search_container)
 
         actions = QHBoxLayout()
+        self.status_buttons = {}
+        for status in MIGRATION_STATUSES:
+            button = QPushButton(status)
+            button.setCheckable(True)
+            button.setMinimumHeight(34)
+            button.clicked.connect(lambda checked, value=status: self._toggle_status_filter(value, checked))
+            self.status_buttons[status] = button
+            actions.addWidget(button)
         actions.addStretch()
+
+        self.category_combo = QComboBox()
+        self.category_combo.setMinimumHeight(34)
+        self.category_combo.setMinimumWidth(190)
+        self.category_combo.addItem("Toutes les catégories")
+        self.category_combo.currentTextChanged.connect(self._set_category_filter)
+        actions.addWidget(self.category_combo)
+
         self.cleanup_button = QPushButton("🧹 Nettoyage")
         self.cleanup_button.setToolTip("Supprimer les résultats issus des scans")
+        self.cleanup_button.setMinimumHeight(34)
         self.cleanup_button.clicked.connect(self.cleanup_scanned_services)
         actions.addWidget(self.cleanup_button)
         layout.addLayout(actions)
@@ -374,26 +355,67 @@ class ServicesPage(QWidget):
         self.table.setItemDelegate(ServiceTableDelegate(self.table))
         layout.addWidget(self.table)
 
-    def _resolve_account_service_id(self, details):
-        account_service_id = details.get("account_service_id")
-        if account_service_id:
-            return account_service_id
+    def _toggle_status_filter(self, status, checked):
+        if checked:
+            self._status_filters.add(status)
+        else:
+            self._status_filters.discard(status)
+        self._filter_services(self.search_input.text())
 
+    def _set_category_filter(self, category):
+        self._category_filter = category or "Toutes les catégories"
+        self._filter_services(self.search_input.text())
+
+    def _refresh_categories(self):
+        current = self._category_filter
+        categories = sorted({str(d.get("category") or "Autre") for d in self._all_details}, key=str.casefold)
+        self.category_combo.blockSignals(True)
+        self.category_combo.clear()
+        self.category_combo.addItem("Toutes les catégories")
+        self.category_combo.addItems(categories)
+        self.category_combo.setCurrentText(current if current in categories or current == "Toutes les catégories" else "Toutes les catégories")
+        self._category_filter = self.category_combo.currentText()
+        self.category_combo.blockSignals(False)
+
+    def _filter_services(self, text):
+        query = (text or "").strip().casefold()
+        rows, details = [], []
+        for row, detail in zip(self._all_rows, self._all_details):
+            status = detail.get("status") or "À vérifier"
+            category = str(detail.get("category") or "Autre")
+            haystack = " ".join(str(value) for value in row).casefold()
+            if query and query not in haystack:
+                continue
+            if self._status_filters and status not in self._status_filters:
+                continue
+            if self._category_filter != "Toutes les catégories" and category != self._category_filter:
+                continue
+            rows.append(row)
+            details.append(detail)
+
+        self.row_details = details
+        self.table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, value in enumerate(row):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
+                item.setForeground(QColor(231, 234, 240))
+                item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                self.table.setItem(r, c, item)
+        self.table.clearSelection()
+        self.table.setCurrentItem(None)
+        self.table.viewport().update()
+
+    def _resolve_account_service_id(self, details):
+        if details.get("account_service_id"):
+            return details["account_service_id"]
         account_id = details.get("account_id")
         service_name = details.get("name")
         if not account_id or not service_name:
             return None
-
         session = get_session()
         try:
-            link = session.scalar(
-                select(AccountService)
-                .join(AccountService.service)
-                .where(
-                    AccountService.account_id == account_id,
-                    Service.name == service_name,
-                )
-            )
+            link = session.scalar(select(AccountService).join(AccountService.service).where(AccountService.account_id == account_id, Service.name == service_name))
             if link:
                 details["account_service_id"] = link.id
                 return link.id
@@ -403,35 +425,28 @@ class ServicesPage(QWidget):
 
     def _show_service_context_menu(self, position):
         index = self.table.indexAt(position)
-        if not index.isValid():
+        if not index.isValid() or not (0 <= index.row() < len(self.row_details)):
             return
         row = index.row()
-        if not (0 <= row < len(self.row_details)):
-            return
         details = self.row_details[row]
         self._resolve_account_service_id(details)
-
         menu = QMenu(self.table)
         menu.setStyleSheet("""
             QMenu { background: #171b22; border: 1px solid #303846; border-radius: 8px; padding: 4px; }
-            QMenu::item { color: #E7EAF0; background: transparent; padding: 8px 18px; margin: 0; border-radius: 5px; }
+            QMenu::item { color: #E7EAF0; background: transparent; padding: 8px 18px; border-radius: 5px; }
             QMenu::item:selected { color: #E7EAF0; background: #303846; }
         """)
         details_action = menu.addAction("Plus de détails")
         status_menu = menu.addMenu("Statut de migration")
-        status_actions = {}
-        for status in MIGRATION_STATUSES:
-            action = status_menu.addAction(status)
-            status_actions[action] = status
+        status_actions = {status_menu.addAction(status): status for status in MIGRATION_STATUSES}
         destination_action = menu.addAction("Définir l'adresse de destination…")
-        chosen_action = menu.exec(self.table.viewport().mapToGlobal(position))
-
-        if chosen_action == details_action:
+        chosen = menu.exec(self.table.viewport().mapToGlobal(position))
+        if chosen == details_action:
             self._open_details_for_row(row, index.column())
-        elif chosen_action == destination_action:
+        elif chosen == destination_action:
             self._set_destination_for_row(row)
-        elif chosen_action in status_actions:
-            self._set_status_for_row(row, status_actions[chosen_action])
+        elif chosen in status_actions:
+            self._set_status_for_row(row, status_actions[chosen])
 
     def _set_status_for_row(self, row, status):
         if not (0 <= row < len(self.row_details)):
@@ -441,7 +456,6 @@ class ServicesPage(QWidget):
         if not account_service_id:
             QMessageBox.information(self, "Migration", "Ce service n'est pas encore disponible en base de données.")
             return
-
         session = get_session()
         try:
             link = session.get(AccountService, account_service_id)
@@ -467,18 +481,17 @@ class ServicesPage(QWidget):
         if not account_service_id:
             QMessageBox.information(self, "Migration", "Ce service n'est pas encore disponible en base de données.")
             return
-
         dialog = QDialog(self)
         dialog.setWindowTitle("Adresse de destination")
         dialog.setModal(True)
         dialog.setMinimumWidth(420)
-        dialog_layout = QVBoxLayout(dialog)
+        box = QVBoxLayout(dialog)
         label = QLabel(f"Nouvelle adresse pour {details.get('name', 'ce service')} :")
         label.setWordWrap(True)
-        dialog_layout.addWidget(label)
+        box.addWidget(label)
         field = QLineEdit(details.get("destination") or "")
         field.setPlaceholderText("nouvelle.adresse@gmail.com")
-        dialog_layout.addWidget(field)
+        box.addWidget(field)
         buttons = QHBoxLayout()
         buttons.addStretch()
         cancel = QPushButton("Annuler")
@@ -487,10 +500,9 @@ class ServicesPage(QWidget):
         save.clicked.connect(dialog.accept)
         buttons.addWidget(cancel)
         buttons.addWidget(save)
-        dialog_layout.addLayout(buttons)
+        box.addLayout(buttons)
         if dialog.exec() != QDialog.Accepted:
             return
-
         session = get_session()
         try:
             link = session.get(AccountService, account_service_id)
@@ -513,7 +525,6 @@ class ServicesPage(QWidget):
         self.live_rows.clear()
         self.live_account_ids.clear()
         self.live_account_emails.clear()
-        self.scan_label.setText("")
         self.refresh()
 
     @staticmethod
@@ -534,33 +545,19 @@ class ServicesPage(QWidget):
         try:
             account_service_id = details.get("account_service_id")
             if account_service_id:
-                traces = session.scalars(
-                    select(ScanTrace).where(ScanTrace.account_service_id == account_service_id)
-                ).all()
+                traces = session.scalars(select(ScanTrace).where(ScanTrace.account_service_id == account_service_id)).all()
                 signals = set(details.get("signals") or [])
                 reliability = dict(details.get("reliability") or {})
                 for trace in traces:
                     if trace.signal_type:
                         signals.add(trace.signal_type)
                     if trace.signal_value:
-                        signals.update(
-                            part.strip()
-                            for part in str(trace.signal_value).split(",")
-                            if part.strip()
-                        )
+                        signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
                 details["signals"] = sorted(signals)
                 if not reliability:
-                    details["reliability"] = {
-                        "official_domain": "domain" in signals,
-                        "known_sender": "sender" in signals,
-                        "authentication_available": False,
-                        "spf": None,
-                        "dkim": None,
-                        "dmarc": None,
-                    }
+                    details["reliability"] = {"official_domain": "domain" in signals, "known_sender": "sender" in signals, "authentication_available": False, "spf": None, "dkim": None, "dmarc": None}
         finally:
             session.close()
-
         dialog = ServiceDetailsDialog(details, self)
         if dialog.exec() == QDialog.Accepted:
             self.refresh()
@@ -575,7 +572,6 @@ class ServicesPage(QWidget):
         email = self._get_account_email(account_id)
         if email:
             self.live_account_emails[account_id] = email
-        self.scan_label.setText(f"● Scan en cours — {len(self.live_account_ids)} compte(s) — résultats en temps réel")
         self._render_live_rows()
 
     def update_live_detection(self, account_id, data):
@@ -610,7 +606,6 @@ class ServicesPage(QWidget):
             self.keep_live_results_after_cancel()
             return
         self.live_scan = False
-        self.scan_label.setText("")
         self.refresh()
         self.live_rows.clear()
         self.live_account_ids.clear()
@@ -618,7 +613,6 @@ class ServicesPage(QWidget):
 
     def keep_live_results_after_cancel(self):
         self.live_scan = False
-        self.scan_label.setText("Scan annulé — résultats déjà détectés conservés")
         self._render_live_rows()
         self.live_account_ids.clear()
         self.live_account_emails.clear()
@@ -633,57 +627,19 @@ class ServicesPage(QWidget):
     def _set_rows(self, rows, details=None):
         self._all_rows = list(rows)
         self._all_details = list(details or [])
+        self._refresh_categories()
         self._filter_services(self.search_input.text())
-
-    def _filter_services(self, text):
-        query = (text or "").strip().casefold()
-        if not query:
-            rows, details = self._all_rows, self._all_details
-        else:
-            rows, details = [], []
-            for row, detail in zip(self._all_rows, self._all_details):
-                haystack = " ".join(str(value) for value in row).casefold()
-                if query in haystack:
-                    rows.append(row)
-                    details.append(detail)
-        self.row_details = details
-        self.table.setRowCount(len(rows))
-        for r, row in enumerate(rows):
-            for c, value in enumerate(row):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
-                item.setForeground(QColor(231, 234, 240))
-                item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-                self.table.setItem(r, c, item)
-        self.table.clearSelection()
-        self.table.setCurrentItem(None)
-        self.table.viewport().update()
-
-    def _update_migration_summary(self, details):
-        counts = {status: 0 for status in MIGRATION_STATUSES}
-        for detail in details:
-            status = detail.get("status") or "À vérifier"
-            counts[status] = counts.get(status, 0) + 1
-        total = len(details)
-        self.migration_summary.setText(
-            f"Migration — {total} service(s) · "
-            f"À vérifier : {counts.get('À vérifier', 0)} · "
-            f"À migrer : {counts.get('À migrer', 0)} · "
-            f"Migrés : {counts.get('Migré', 0)} · "
-            f"Abandonnés : {counts.get('Abandonné', 0)}"
-        )
 
     def refresh(self):
         session = get_session()
-        rows, details, selected_account = [], [], None
+        rows, details = [], []
         try:
             for account in get_accounts(session):
                 if self.active_account_id is not None and account.id != self.active_account_id:
                     continue
-                if account.id == self.active_account_id:
-                    selected_account = account
                 for link in get_account_services(session, account.id):
                     service = link.service
+                    status = link.status or "À vérifier"
                     details.append({
                         "account_id": account.id,
                         "account_service_id": link.id,
@@ -693,7 +649,7 @@ class ServicesPage(QWidget):
                         "subcategory": service.subcategory,
                         "score": link.confidence_score,
                         "count": link.trace_count,
-                        "status": link.status or "À vérifier",
+                        "status": status,
                         "priority": link.priority,
                         "destination": link.destination_email,
                         "notes": link.notes,
@@ -703,23 +659,14 @@ class ServicesPage(QWidget):
                         "signals": [],
                         "reliability": {},
                     })
-                    rows.append((account.email, service.name, service.category, f"{link.confidence_score:.0f} %", str(link.trace_count), link.status or "À vérifier"))
+                    rows.append((account.email, service.name, service.category, f"{link.confidence_score:.0f} %", str(link.trace_count), status))
         finally:
             session.close()
-
-        self.account_label.setText("Tous les comptes" if self.active_account_id is None else (f"Compte sélectionné : {selected_account.email}" if selected_account else "Compte sélectionné introuvable"))
-        self._update_migration_summary(details)
         if not self.live_scan:
             self._set_rows(rows, details)
 
     def cleanup_scanned_services(self):
-        answer = QMessageBox.question(
-            self,
-            "Nettoyage des services",
-            "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        answer = QMessageBox.question(self, "Nettoyage des services", "Supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
         session = get_session()
@@ -737,5 +684,4 @@ class ServicesPage(QWidget):
         self.live_account_ids.clear()
         self.live_account_emails.clear()
         self.live_scan = False
-        self.scan_label.setText("")
         self.refresh()
