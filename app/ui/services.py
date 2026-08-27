@@ -1,9 +1,11 @@
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
-    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout, QWidget,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
+    QWidget, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem,
 )
 from sqlalchemy import delete, select
 
@@ -86,7 +88,6 @@ class ServiceDetailsDialog(QDialog):
         grid.addWidget(signal_label, row, 0, Qt.AlignTop)
         grid.addWidget(signal_value, row, 1)
 
-        # Phase 4.2 : contribution de chaque signal au score.
         row += 1
         score_label = QLabel("Détail du score")
         score_label.setProperty("class", "detailLabel")
@@ -97,8 +98,6 @@ class ServiceDetailsDialog(QDialog):
         grid.addWidget(score_label, row, 0, Qt.AlignTop)
         grid.addWidget(score_value, row, 1)
 
-        # Fiabilité de la source : contexte d'authentification, sans en faire
-        # une preuve absolue de légitimité.
         row += 1
         reliability_label = QLabel("Fiabilité de la source")
         reliability_label.setProperty("class", "detailLabel")
@@ -178,6 +177,43 @@ class ServiceDetailsDialog(QDialog):
         return "\n".join(lines)
 
 
+class ServiceTableDelegate(QStyledItemDelegate):
+    """Draws each service row as one continuous visual block."""
+
+    def paint(self, painter, option, index):
+        table = self.parent()
+        hovered_row = getattr(table, "hovered_row", -1)
+        row = index.row()
+        column = index.column()
+        last_column = table.columnCount() - 1
+        rect = QRectF(option.rect).adjusted(3, 4, -3, -4)
+        bg = QColor(48, 58, 72) if row == hovered_row else QColor(29, 34, 43)
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        if column == 0:
+            path = QPainterPath()
+            path.addRoundedRect(rect, 9, 9)
+            path.addRect(QRectF(rect.left() + rect.width() / 2, rect.top(), rect.width() / 2, rect.height()))
+            painter.fillPath(path, bg)
+        elif column == last_column:
+            path = QPainterPath()
+            path.addRoundedRect(rect, 9, 9)
+            path.addRect(QRectF(rect.left(), rect.top(), rect.width() / 2, rect.height()))
+            painter.fillPath(path, bg)
+        else:
+            painter.fillRect(rect, bg)
+
+        text_option = QStyleOptionViewItem(option)
+        text_option.state &= ~QStyleOptionViewItem.State_MouseOver
+        text_option.state &= ~QStyleOptionViewItem.State_Selected
+        text_option.rect = option.rect.adjusted(8, 0, -8, 0)
+        text_option.backgroundBrush = Qt.NoBrush
+        super().paint(painter, text_option, index)
+        painter.restore()
+
+
 class ServicesPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -187,6 +223,9 @@ class ServicesPage(QWidget):
         self.live_rows = {}
         self.row_details = []
         self.live_account_emails = {}
+        self.hovered_row = -1
+        self._all_rows = []
+        self._all_details = []
 
         layout = QVBoxLayout(self)
         title = QLabel("Inventaire des services")
@@ -200,6 +239,22 @@ class ServicesPage(QWidget):
         self.scan_label = QLabel("")
         self.scan_label.setObjectName("muted")
         layout.addWidget(self.scan_label)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("🔎  Rechercher un service, compte ou catégorie...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setMinimumHeight(38)
+        self.search_input.textChanged.connect(self._filter_services)
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #303846;
+                border-radius: 10px;
+                padding: 0 12px;
+                background: #171b22;
+            }
+            QLineEdit:focus { border: 1px solid #58677d; }
+        """)
+        layout.addWidget(self.search_input)
 
         actions = QHBoxLayout()
         actions.addStretch()
@@ -215,8 +270,28 @@ class ServicesPage(QWidget):
         self.table.setSelectionMode(QTableWidget.NoSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.setShowGrid(False)
+        self.table.setMouseTracking(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(50)
+        self.table.setItemDelegate(ServiceTableDelegate(self.table))
         self.table.cellDoubleClicked.connect(self._open_details_for_row)
+        self.table.viewport().installEventFilter(self)
         layout.addWidget(self.table)
+
+    def eventFilter(self, watched, event):
+        if watched is self.table.viewport():
+            if event.type() == event.Type.MouseMove:
+                index = self.table.indexAt(event.position().toPoint())
+                new_row = index.row() if index.isValid() else -1
+                if new_row != self.hovered_row:
+                    self.hovered_row = new_row
+                    self.table.viewport().update()
+            elif event.type() == event.Type.Leave:
+                if self.hovered_row != -1:
+                    self.hovered_row = -1
+                    self.table.viewport().update()
+        return super().eventFilter(watched, event)
 
     def set_active_account(self, account_id):
         if self.live_scan:
@@ -255,8 +330,6 @@ class ServicesPage(QWidget):
                         signals.update(part.strip() for part in str(trace.signal_value).split(",") if part.strip())
                 details["signals"] = sorted(signals)
                 if not reliability:
-                    # Older persisted traces may not contain authentication data.
-                    # Keep the UI honest rather than inventing SPF/DKIM/DMARC results.
                     reliability = {
                         "official_domain": "domain" in signals,
                         "known_sender": "sender" in signals,
@@ -334,13 +407,32 @@ class ServicesPage(QWidget):
         self._set_rows(rows, details)
 
     def _set_rows(self, rows, details=None):
-        self.row_details = details or []
+        self._all_rows = list(rows)
+        self._all_details = list(details or [])
+        self._filter_services(self.search_input.text())
+
+    def _filter_services(self, text):
+        query = (text or "").strip().casefold()
+        if not query:
+            rows = self._all_rows
+            details = self._all_details
+        else:
+            rows, details = [], []
+            for row, detail in zip(self._all_rows, self._all_details):
+                haystack = " ".join(str(value) for value in row).casefold()
+                if query in haystack:
+                    rows.append(row)
+                    details.append(detail)
+
+        self.row_details = details
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, value in enumerate(row):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
                 self.table.setItem(r, c, item)
+        self.hovered_row = -1
+        self.table.viewport().update()
 
     def refresh(self):
         session = get_session()
