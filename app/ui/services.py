@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
-    QWidget, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem,
+    QWidget, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
 )
 from sqlalchemy import delete, select
 
@@ -178,36 +178,36 @@ class ServiceDetailsDialog(QDialog):
 
 
 class ServiceTableDelegate(QStyledItemDelegate):
-    """Draws each service row as one continuous visual block."""
+    """Draws one continuous rounded background for the complete service row."""
 
     def paint(self, painter, option, index):
         table = self.parent()
         hovered_row = getattr(table, "hovered_row", -1)
         row = index.row()
         column = index.column()
-        last_column = table.columnCount() - 1
-        rect = QRectF(option.rect).adjusted(3, 4, -3, -4)
-        bg = QColor(48, 58, 72) if row == hovered_row else QColor(29, 34, 43)
 
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
 
+        # Draw the background only once, from the first cell, across the
+        # complete viewport width. This prevents every column from looking
+        # like a separate card and gives the row one consistent hover color.
         if column == 0:
+            row_rect = QRectF(
+                3,
+                option.rect.top() + 4,
+                max(0, table.viewport().width() - 6),
+                max(0, option.rect.height() - 8),
+            )
+            bg = QColor(48, 58, 72) if row == hovered_row else QColor(29, 34, 43)
             path = QPainterPath()
-            path.addRoundedRect(rect, 9, 9)
-            path.addRect(QRectF(rect.left() + rect.width() / 2, rect.top(), rect.width() / 2, rect.height()))
+            path.addRoundedRect(row_rect, 9, 9)
             painter.fillPath(path, bg)
-        elif column == last_column:
-            path = QPainterPath()
-            path.addRoundedRect(rect, 9, 9)
-            path.addRect(QRectF(rect.left(), rect.top(), rect.width() / 2, rect.height()))
-            painter.fillPath(path, bg)
-        else:
-            painter.fillRect(rect, bg)
 
+        # Let Qt render text only; the item itself has no visible background.
         text_option = QStyleOptionViewItem(option)
-        text_option.state &= ~QStyleOptionViewItem.State_MouseOver
-        text_option.state &= ~QStyleOptionViewItem.State_Selected
+        text_option.state &= ~QStyle.State_MouseOver
+        text_option.state &= ~QStyle.State_Selected
         text_option.rect = option.rect.adjusted(8, 0, -8, 0)
         text_option.backgroundBrush = Qt.NoBrush
         super().paint(painter, text_option, index)
@@ -272,6 +272,20 @@ class ServicesPage(QWidget):
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setShowGrid(False)
         self.table.setMouseTracking(True)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background: transparent;
+                border: none;
+                gridline-color: transparent;
+            }
+            QTableWidget::item {
+                background: transparent;
+                border: none;
+            }
+            QTableWidget::item:selected {
+                background: transparent;
+            }
+        """)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(50)
         self.table.setItemDelegate(ServiceTableDelegate(self.table))
