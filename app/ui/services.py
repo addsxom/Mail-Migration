@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, QEvent
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QDialog, QFrame, QGridLayout, QHeaderView, QLabel, QMessageBox,
@@ -242,9 +242,12 @@ class ServicesPage(QWidget):
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setShowGrid(False)
         self.table.setMouseTracking(False)
+        self.table.setAttribute(Qt.WA_Hover, False)
+        self.table.viewport().setAttribute(Qt.WA_Hover, False)
         self.table.setStyleSheet("""
             QTableWidget { background: transparent; border: none; gridline-color: transparent; outline: none; }
             QTableWidget::item { background: transparent; border: none; outline: none; padding: 0; }
+            QTableWidget::item:hover { background: transparent; color: inherit; }
             QTableWidget::item:selected { background: transparent; color: inherit; outline: none; }
             QTableWidget::item:focus { background: transparent; outline: none; border: none; }
             QTableCornerButton::section { background: transparent; border: none; }
@@ -252,8 +255,15 @@ class ServicesPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(54)
         self.table.setItemDelegate(ServiceRowDelegate(self.table))
+        self.table.viewport().installEventFilter(self)
         self.table.cellDoubleClicked.connect(self._open_details_for_row)
         layout.addWidget(self.table)
+
+    def eventFilter(self, watched, event):
+        if watched is self.table.viewport():
+            if event.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave, QEvent.MouseMove):
+                return True
+        return super().eventFilter(watched, event)
 
     def set_active_account(self, account_id):
         if self.live_scan:
@@ -392,6 +402,7 @@ class ServicesPage(QWidget):
                 self.table.setItem(r, c, item)
         self.table.clearSelection()
         self.table.setCurrentItem(None)
+        self.table.clearFocus()
         self.table.viewport().update()
 
     def refresh(self):
