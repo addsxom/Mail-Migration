@@ -123,19 +123,13 @@ def _polish_service_details_dialog(self):
     if card_layout:
         card_layout.setContentsMargins(22,22,22,22)
         card_layout.setSpacing(16)
-    grid=card.findChild(type(card.layout()))
     for label in card.findChildren(QLabel):
         if label.property("class")=="detailLabel": label.setMinimumWidth(125)
-    if hasattr(self,"status_combo"):
-        self.status_combo.setMinimumHeight(38)
-    if hasattr(self,"destination_input"):
-        self.destination_input.setMinimumHeight(38)
-    if hasattr(self,"notes_input"):
-        self.notes_input.setMinimumHeight(82)
-    if hasattr(self,"save_button"):
-        self.save_button.setMinimumWidth(120)
-    for button in self.findChildren(QPushButton):
-        button.setMinimumHeight(38)
+    if hasattr(self,"status_combo"): self.status_combo.setMinimumHeight(38)
+    if hasattr(self,"destination_input"): self.destination_input.setMinimumHeight(38)
+    if hasattr(self,"notes_input"): self.notes_input.setMinimumHeight(82)
+    if hasattr(self,"save_button"): self.save_button.setMinimumWidth(120)
+    for button in self.findChildren(QPushButton): button.setMinimumHeight(38)
 
 _original_details_init=ServiceDetailsDialog.__init__
 def _styled_details_init(self,details,parent=None):
@@ -150,6 +144,24 @@ services_module.ServicesPage._open_details_for_row=_safe_open_details_for_row
 services_module.ServicesPage._set_destination_for_row=_safe_set_destination_for_row
 services_module.ServicesPage._set_status_for_row=_safe_set_status_for_row
 services_module.ServicesPage.cleanup_scanned_services=_confirmed_cleanup_scanned_services
+
+_original_export_init=ExportPage.__init__
+def _export_init_with_refresh(self):
+    _original_export_init(self)
+    refresh_button=QPushButton("↻")
+    refresh_button.setToolTip("Actualiser les analyses sauvegardées")
+    refresh_button.setFixedWidth(42)
+    refresh_button.setMinimumHeight(38)
+    refresh_button.clicked.connect(self.refresh)
+    form=self.scan_combo.parentWidget().layout()
+    index=form.indexOf(self.scan_combo)
+    row=QHBoxLayout()
+    row.addWidget(self.scan_combo,1)
+    row.addWidget(refresh_button)
+    form.removeWidget(self.scan_combo)
+    form.insertLayout(index,row)
+    self.scan_refresh_button=refresh_button
+ExportPage.__init__=_export_init_with_refresh
 
 class MainWindow(QMainWindow):
     def __init__(self):
