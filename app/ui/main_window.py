@@ -8,7 +8,7 @@ from app.database.database import init_db
 from .dashboard import DashboardPage
 from .accounts import AccountsPage
 from . import services as services_module
-from .services import ServicesPage, MIGRATION_STATUSES
+from .services import ServicesPage, MIGRATION_STATUSES, ServiceDetailsDialog
 from .export import ExportPage
 from .settings import SettingsPage
 
@@ -21,6 +21,18 @@ QPushButton:checked { background:#303846; border:1px solid #71819A; color:#FFFFF
 QPushButton:checked:hover { background:#363D49; border:1px solid #7B8AA2; }
 QLabel#title { font-size:22px; font-weight:700; }
 QLabel#muted { color:#9AA2AF; }
+QDialog { background:#111318; }
+QFrame#serviceDetailsCard { border:1px solid #303846; border-radius:16px; background:#171B22; }
+QFrame#serviceDetailsCard QLabel#serviceDetailsTitle { font-size:24px; font-weight:700; color:#F2F4F7; padding-top:2px; }
+QFrame#serviceDetailsCard QLabel#serviceDetailsSubtitle { color:#8F98A8; font-size:13px; padding-bottom:4px; }
+QFrame#serviceDetailsCard QLabel[class="detailLabel"] { color:#8F98A8; font-size:12px; font-weight:600; padding-top:2px; }
+QFrame#serviceDetailsCard QLabel#signalValue { color:#D9DEE7; line-height:1.35; }
+QFrame#serviceDetailsCard QLabel#scoreValue { color:#FFFFFF; font-size:22px; font-weight:700; }
+QFrame#serviceDetailsCard QLineEdit, QFrame#serviceDetailsCard QComboBox, QFrame#serviceDetailsCard QTextEdit { border:1px solid #303846; border-radius:9px; background:#10141A; color:#E7EAF0; padding:8px 10px; }
+QFrame#serviceDetailsCard QLineEdit:focus, QFrame#serviceDetailsCard QComboBox:focus, QFrame#serviceDetailsCard QTextEdit:focus { border:1px solid #65748C; background:#12171E; }
+QDialog QPushButton { min-width:90px; padding:9px 16px; border-radius:9px; }
+QDialog QPushButton:hover { background:#272D38; }
+QDialog QPushButton:default { background:#303846; border:1px solid #65748C; color:#FFFFFF; }
 """
 
 _CIRCULAR_ICON_CACHE = {}
@@ -97,6 +109,40 @@ def _safe_set_status_for_row(self,row,status):
 def _confirmed_cleanup_scanned_services(self):
     answer=QMessageBox.question(self,"Nettoyage des services","Voulez-vous vraiment supprimer tous les services détectés par les scans ?\n\nLes comptes Google et leurs autorisations ne seront pas supprimés.",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
     return _original_cleanup_scanned_services(self) if answer==QMessageBox.Yes else None
+
+def _polish_service_details_dialog(self):
+    self.setMinimumWidth(700)
+    self.setMaximumWidth(820)
+    root=self.layout()
+    if root:
+        root.setContentsMargins(22,22,22,22)
+        root.setSpacing(16)
+    card=self.findChild(QFrame,"serviceDetailsCard")
+    if not card:return
+    card_layout=card.layout()
+    if card_layout:
+        card_layout.setContentsMargins(22,22,22,22)
+        card_layout.setSpacing(16)
+    grid=card.findChild(type(card.layout()))
+    for label in card.findChildren(QLabel):
+        if label.property("class")=="detailLabel": label.setMinimumWidth(125)
+    if hasattr(self,"status_combo"):
+        self.status_combo.setMinimumHeight(38)
+    if hasattr(self,"destination_input"):
+        self.destination_input.setMinimumHeight(38)
+    if hasattr(self,"notes_input"):
+        self.notes_input.setMinimumHeight(82)
+    if hasattr(self,"save_button"):
+        self.save_button.setMinimumWidth(120)
+    for button in self.findChildren(QPushButton):
+        button.setMinimumHeight(38)
+
+_original_details_init=ServiceDetailsDialog.__init__
+def _styled_details_init(self,details,parent=None):
+    _original_details_init(self,details,parent)
+    _polish_service_details_dialog(self)
+ServiceDetailsDialog.__init__=_styled_details_init
+
 services_module.ServicesPage._schedule_live_render=_safe_schedule_live_render
 services_module.ServicesPage._render_live_rows_deferred=_safe_render_live_rows_deferred
 services_module.ServicesPage._show_service_context_menu=_safe_show_service_context_menu
