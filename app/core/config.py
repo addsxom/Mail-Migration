@@ -11,5 +11,8 @@ DATA_DIR.mkdir(exist_ok=True)
 TOKENS_DIR.mkdir(exist_ok=True)
 
 APP_NAME = "Mail Migration"
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/contacts.readonly",
+]
 MAX_MESSAGES_PER_PAGE = 100
