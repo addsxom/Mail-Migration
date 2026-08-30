@@ -108,10 +108,10 @@ def _add_detection(bucket, detection, message_id):
         bucket["message_ids"].append(message_id)
 
 
-def _callback_data(account, item, link):
+def _callback_data(account, item, link=None):
     return {
         "account_id": account.id,
-        "account_service_id": link.id,
+        "account_service_id": link.id if link else None,
         "account_email": account.email,
         "name": item["definition"]["name"],
         "service_id": item["definition"].get("name"),
@@ -119,12 +119,12 @@ def _callback_data(account, item, link):
         "subcategory": item["definition"].get("subcategory"),
         "score": item["score"],
         "count": item["count"],
-        "status": link.status or "À vérifier",
-        "priority": link.priority or "Normale",
-        "destination_email": link.destination_email,
-        "notes": link.notes,
-        "first_detected_at": link.first_detected_at,
-        "last_detected_at": link.last_detected_at,
+        "status": link.status if link else "À vérifier",
+        "priority": (link.priority or "Normale") if link else "Normale",
+        "destination_email": link.destination_email if link else None,
+        "notes": link.notes if link else None,
+        "first_detected_at": link.first_detected_at if link else None,
+        "last_detected_at": link.last_detected_at if link else None,
         "signals": sorted(item["signals"]),
         "reliability": item.get("reliability", {}),
     }
@@ -201,6 +201,11 @@ def scan_account(
                         _new_detection_bucket(detection),
                     )
                     _add_detection(item, detection, message_id)
+
+                # Update the live UI immediately without touching the database.
+                # Database persistence remains batched every 50 messages.
+                if detection_callback:
+                    detection_callback(_callback_data(account, item))
 
             if messages_scanned - last_persist >= PERSIST_EVERY_MESSAGES:
                 _persist_partial(
