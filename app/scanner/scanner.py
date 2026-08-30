@@ -3,6 +3,9 @@ from pathlib import Path
 import json
 import re
 import shutil
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from sqlalchemy import select
 
@@ -11,6 +14,7 @@ from app.database.repositories import get_or_create_service
 from app.google.gmail import get_message_count, iter_message_metadata
 from app.google.profile_photos import get_profile_photo
 from app.services.builtin_catalog import CATALOG
+from app.scanner.intelligent_services import resolve_service
 from .catalog_index import CatalogIndex
 from .detector import detect_message
 
@@ -21,6 +25,31 @@ class ScanCancelled(Exception):
 
 UNKNOWN_MIN_MESSAGES = 2
 PERSIST_EVERY_MESSAGES = 50
+
+SERVICE_WEBSITES = {
+    "streamlabs": "streamlabs.com",
+    "medal": "medal.tv",
+    "supercell": "supercell.com",
+    "supercell-store": "store.supercell.com",
+    "brawl-stars": "brawlstars.com",
+    "guns-lol": "guns.lol",
+    "sony": "sony.com",
+    "hide-me": "hide.me",
+    "intelligence-x": "intelx.io",
+    "sellhub": "sellhub.com",
+    "bitwarden": "bitwarden.com",
+    "shein": "shein.com",
+    "lego": "lego.com",
+    "just-eat": "just-eat.ch",
+    "instant-gaming": "instant-gaming.com",
+    "ebookers": "ebookers.com",
+    "hellcase": "hellcase.com",
+    "tinder": "tinder.com",
+    "mongodb": "mongodb.com",
+    "eneba": "eneba.com",
+    "chess-com": "chess.com",
+    "bolt": "bolt.eu",
+}
 
 
 def _service_key(name):
@@ -37,25 +66,77 @@ def _service_initials(name):
     return (words[0][0] + words[1][0]).upper()
 
 
+def _service_website(service_name, sender_email):
+    key = _service_key(service_name)
+    if key in SERVICE_WEBSITES:
+        return SERVICE_WEBSITES[key]
+    domain = (sender_email or "").rsplit("@", 1)[-1].strip().lower()
+    if domain and "." in domain:
+        return domain
+    return None
+
+
+def _download_logo(url, destination):
+    request = Request(url, headers={"User-Agent": "Mail-Migration/1.0"})
+    with urlopen(request, timeout=5) as response:
+        data = response.read()
+        content_type = (response.headers.get("Content-Type") or "").lower()
+    if not data or len(data) < 32:
+        return False
+    if "svg" in content_type or data.lstrip().startswith(b"<svg") or b"<svg" in data[:500].lower():
+        destination = destination.with_suffix(".svg")
+    elif "png" in content_type or data.startswith(b"\x89PNG"):
+        destination = destination.with_suffix(".png")
+    elif "webp" in content_type or data.startswith(b"RIFF") and b"WEBP" in data[:16]:
+        destination = destination.with_suffix(".webp")
+    else:
+        destination = destination.with_suffix(".jpg")
+    destination.write_bytes(data)
+    return True
+
+
+def _download_service_logo(service_name, sender_email, assets, key):
+    website = _service_website(service_name, sender_email)
+    if not website:
+        return False
+    candidates = [
+        f"https://{website}/favicon.ico",
+        f"https://www.{website}/favicon.ico" if not website.startswith("www.") else None,
+        f"https://www.google.com/s2/favicons?sz=128&domain={quote(website)}",
+    ]
+    for url in candidates:
+        if not url:
+            continue
+        try:
+            if _download_logo(url, assets / key):
+                return True
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError):
+            continue
+    return False
+
+
 def _write_service_avatar(service_name, sender_email, account_email):
     assets = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
     assets.mkdir(parents=True, exist_ok=True)
     key = _service_key(service_name)
-    for suffix in (".png", ".jpg", ".jpeg", ".svg"):
-        candidate = assets / f"{key}{suffix}"
-        if candidate.exists():
-            try:
-                candidate.unlink()
-            except OSError:
-                pass
-    photo = get_profile_photo(sender_email, account_email) if sender_email else None
-    if photo:
-        destination = assets / f"{key}.jpg"
+
+    existing = [assets / f"{key}{suffix}" for suffix in (".png", ".jpg", ".jpeg", ".svg", ".webp")]
+    if any(path.exists() and path.stat().st_size > 32 for path in existing):
+        return
+
+    if sender_email:
         try:
-            shutil.copyfile(photo, destination)
-            return
-        except OSError:
+            photo = get_profile_photo(sender_email, account_email)
+            if photo:
+                destination = assets / f"{key}.jpg"
+                shutil.copyfile(photo, destination)
+                return
+        except (OSError, ValueError):
             pass
+
+    if _download_service_logo(service_name, sender_email, assets, key):
+        return
+
     initials = _service_initials(service_name)
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#303846"/><text x="32" y="35" text-anchor="middle" dominant-baseline="middle" fill="#E7EAF0" font-family="Arial,sans-serif" font-size="18" font-weight="700">{initials}</text></svg>'''
     (assets / f"{key}.svg").write_text(svg, encoding="utf-8")
