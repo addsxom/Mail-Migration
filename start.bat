@@ -30,7 +30,7 @@ echo  [2/3] Dependances              OK
 goto :launch
 
 :install_deps
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$py=Join-Path (Get-Location) '.venv\Scripts\python.exe'; $p=Start-Process -FilePath $py -ArgumentList @('-m','pip','install','-r','requirements.txt','--disable-pip-version-check','-q') -WorkingDirectory (Get-Location) -PassThru -WindowStyle Hidden; $chars='|','/','-','\\'; $i=0; while(-not $p.HasExited){ Write-Host -NoNewline ([char]13 + ' [2/3] Dependances              Installation... ' + $chars[$i %% 4]); $i++; Start-Sleep -Milliseconds 120; $p.Refresh() }; $code=$p.ExitCode; Write-Host ([char]13 + (' ' * 75) + [char]13); exit $code"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$py=Join-Path (Get-Location) '.venv\Scripts\python.exe'; $args=@('-m','pip','install','-r','requirements.txt','--disable-pip-version-check','-q'); $p=Start-Process -FilePath $py -ArgumentList $args -WorkingDirectory (Get-Location) -PassThru -WindowStyle Hidden; $chars=@('|','/','-','\\'); $i=0; while(-not $p.HasExited){ $p.Refresh(); Write-Host -NoNewline ([char]13 + ' [2/3] Dependances              Installation... ' + $chars[$i %% $chars.Count] + ' '); $i++; Start-Sleep -Milliseconds 120 }; $p.Refresh(); $code=$p.ExitCode; Write-Host -NoNewline ([char]13 + (' ' * 80) + [char]13); exit $code"
 if errorlevel 1 goto :deps_error
 echo  [2/3] Dependances              OK
 
