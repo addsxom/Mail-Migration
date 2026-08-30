@@ -1,7 +1,7 @@
 import sys
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QStackedWidget, QLabel, QMenu, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QStackedWidget, QLabel, QMenu, QMessageBox, QFrame
 from app.core.account_state import AccountState
 from app.core.logger import setup_logging
 from app.database.database import init_db
@@ -10,6 +10,7 @@ from .accounts import AccountsPage
 from . import services as services_module
 from .services import ServicesPage, MIGRATION_STATUSES
 from .export import ExportPage
+from .settings import SettingsPage
 
 STYLE = """
 QMainWindow, QWidget { background:#111318; color:#ECEEF2; font-family:Segoe UI; font-size:14px; }
@@ -40,7 +41,6 @@ def _make_circular_icon(icon):
 def _circular_service_icon(name,category=""): return _make_circular_icon(_original_service_icon(name,category))
 services_module._service_icon=_circular_service_icon
 
-# Keep the existing account page and only rename its persisted-scan label.
 _original_accounts_refresh=AccountsPage.refresh
 def _accounts_refresh_with_saved_label(self,selected_id=None):
     _original_accounts_refresh(self,selected_id)
@@ -109,14 +109,19 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle("Mail Migration"); self.resize(1180,760); self.setStyleSheet(STYLE)
         self.account_state=AccountState(); self.account_state.changed.connect(self._account_changed)
-        root=QWidget(); layout=QHBoxLayout(root); layout.setContentsMargins(12,12,12,12); sidebar=QVBoxLayout(); title=QLabel("Mail Migration"); title.setObjectName("title"); sidebar.addWidget(title)
-        self.stack=QStackedWidget(); self.dashboard=DashboardPage(); self.accounts=AccountsPage(self.set_active_account); self.services=ServicesPage(); self.export_page=ExportPage()
+        root=QWidget(); root_layout=QVBoxLayout(root); root_layout.setContentsMargins(12,12,12,12); root_layout.setSpacing(0)
+        content=QHBoxLayout(); content.setSpacing(12)
+        sidebar=QVBoxLayout(); sidebar.setSpacing(8); title=QLabel("Mail Migration"); title.setObjectName("title"); sidebar.addWidget(title)
+        self.stack=QStackedWidget(); self.dashboard=DashboardPage(); self.accounts=AccountsPage(self.set_active_account); self.services=ServicesPage(); self.export_page=ExportPage(); self.settings_page=SettingsPage()
         self.accounts.scan_started.connect(self.services.start_live_scan); self.accounts.scan_detection.connect(self.services.update_live_detection); self.accounts.scan_finished_live.connect(self._scan_finished)
-        self.stack.addWidget(self.dashboard); self.stack.addWidget(self.accounts); self.stack.addWidget(self.services); self.stack.addWidget(self.export_page)
+        self.stack.addWidget(self.dashboard); self.stack.addWidget(self.accounts); self.stack.addWidget(self.services); self.stack.addWidget(self.export_page); self.stack.addWidget(self.settings_page)
         for text,index in [("Dashboard",0),("Comptes Google",1),("Services",2),("Exportation",3)]:
             button=QPushButton(text); button.clicked.connect(lambda checked=False,i=index:self._navigate(i)); sidebar.addWidget(button)
-        sidebar.addStretch(); info=QLabel("Lecture Gmail uniquement"); info.setObjectName("muted"); info.setAlignment(Qt.AlignCenter); sidebar.addWidget(info)
-        layout.addLayout(sidebar,1); layout.addWidget(self.stack,4); self.setCentralWidget(root); self.refresh_all()
+        sidebar.addStretch()
+        settings_button=QPushButton("⚙ Paramètres"); settings_button.clicked.connect(lambda:self._navigate(4)); sidebar.addWidget(settings_button)
+        content.addLayout(sidebar,1); content.addWidget(self.stack,4); root_layout.addLayout(content,1)
+        bottom=QFrame(); bottom.setFixedHeight(36); bottom_layout=QHBoxLayout(bottom); bottom_layout.setContentsMargins(0,0,0,0); bottom_label=QLabel("Lecture Gmail uniquement"); bottom_label.setObjectName("muted"); bottom_label.setAlignment(Qt.AlignCenter); bottom_layout.addStretch(); bottom_layout.addWidget(bottom_label); bottom_layout.addStretch(); root_layout.addWidget(bottom)
+        self.setCentralWidget(root); self.refresh_all()
     def _navigate(self,index):
         self.stack.setCurrentIndex(index)
         if index==3: self.export_page.refresh()
