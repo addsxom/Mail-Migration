@@ -366,8 +366,9 @@ def scan_account(session, account_id, progress=None, cancel_check=None, query=""
                 progress(messages_scanned, estimated_total, len(detections))
 
         _persist_partial(session, account, detections, detection_callback)
-        account.last_scan_at = datetime.now(timezone.utc)
-        history.finished_at = datetime.now(timezone.utc)
+        finished_at = datetime.now(timezone.utc)
+        account.last_scan_at = finished_at
+        history.finished_at = finished_at
         history.status = "completed"
         history.messages_scanned = messages_scanned
         history.services_detected = len(detections)
