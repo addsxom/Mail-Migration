@@ -1,27 +1,14 @@
 import time
 from PySide6.QtCore import QTimer
-from app.database.database import get_session
-from app.ui.accounts import AccountsPage, ScanWorker
-from app.database.repositories import get_accounts
-from app.scanner.scanner import scan_account, ScanCancelled
+from app.ui.accounts import AccountsPage
 
-_original_start_scan = AccountsPage.start_scan
 _original_accounts_init = AccountsPage.__init__
-
-
-def _accounts_init(self, on_change=None):
-    _original_accounts_init(self, on_change)
-    self._smooth_target = 0
-    self._smooth_timer = QTimer(self)
-    self._smooth_timer.setInterval(25)
-    self._smooth_timer.timeout.connect(self._smooth_progress_step)
-    self._smooth_timer.start()
-    self._scan_email_cache = {}
-    self._scan_position_cache = {}
-    self._scan_last_status = 0.0
+_original_start_scan = AccountsPage.start_scan
 
 
 def _smooth_progress_step(self):
+    if not hasattr(self, "progress"):
+        return
     current = self.progress.value()
     target = getattr(self, "_smooth_target", current)
     if current < target:
@@ -29,6 +16,18 @@ def _smooth_progress_step(self):
         self.progress.setValue(min(target, current + step))
     elif current > target:
         self.progress.setValue(target)
+
+
+def _accounts_init(self, on_change=None):
+    _original_accounts_init(self, on_change)
+    self._smooth_target = 0
+    self._smooth_timer = QTimer(self)
+    self._smooth_timer.setInterval(25)
+    self._smooth_timer.timeout.connect(lambda: _smooth_progress_step(self))
+    self._smooth_timer.start()
+    self._scan_email_cache = {}
+    self._scan_position_cache = {}
+    self._scan_last_status = 0.0
 
 
 def _start_scan(self):
@@ -85,59 +84,7 @@ def _scan_account_started(self, account_id, position, total_accounts):
     self.status.setText(f"Compte {position} / {total_accounts}   •   Scan en préparation…")
 
 
-def _worker_run(self):
-    completed = 0
-    total_accounts = len(self.account_ids)
-    try:
-        for account_id in self.account_ids:
-            if self._cancel:
-                self.cancelled.emit(account_id)
-                break
-            position = self.positions.get(account_id, completed + 1)
-            total_positions = max(position, max(self.positions.values(), default=total_accounts))
-            self.account_started.emit(account_id, position, total_positions)
-            session = get_session()
-            last_emit = 0.0
-            last_values = None
-
-            def emit_progress(m, t, s, aid=account_id):
-                nonlocal last_emit, last_values
-                now = time.monotonic()
-                values = (m, t, s, completed)
-                if m == t or now - last_emit >= 0.06 or values != last_values:
-                    if m == t or now - last_emit >= 0.06:
-                        self.progress.emit(aid, m, t, s, completed)
-                        last_emit = now
-                        last_values = values
-
-            try:
-                result = scan_account(
-                    session,
-                    account_id,
-                    progress=emit_progress,
-                    cancel_check=lambda: self._cancel,
-                    detection_callback=lambda data, aid=account_id: self.detection.emit(aid, data),
-                )
-            except ScanCancelled:
-                self.cancelled.emit(account_id)
-                break
-            except Exception as exc:
-                self.error.emit(account_id, str(exc))
-                continue
-            finally:
-                session.close()
-            messages, services = result
-            completed += 1
-            self.account_finished.emit(account_id, messages, services)
-            self.progress.emit(account_id, messages, messages, services, completed)
-        self.finished.emit()
-    except Exception as exc:
-        self.error.emit(0, str(exc))
-        self.finished.emit()
-
-
 AccountsPage.__init__ = _accounts_init
 AccountsPage.start_scan = _start_scan
 AccountsPage.scan_progress = _scan_progress
 AccountsPage.scan_account_started = _scan_account_started
-ScanWorker.run = _worker_run
