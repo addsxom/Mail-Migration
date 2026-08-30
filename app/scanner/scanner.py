@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.database.models import GoogleAccount, AccountService, ScanHistory, ScanTrace
+from app.database.models import GoogleAccount, AccountService, ScanHistory, ScanServiceSnapshot, ScanTrace
 from app.database.repositories import get_or_create_service
 from app.google.gmail import get_message_count, iter_message_metadata
 from app.services.builtin_catalog import CATALOG
@@ -73,7 +73,6 @@ def _persist_detection(session, account, data):
 
 
 def _persist_partial(session, account, detections, detection_callback=None):
-    """Persist accumulated detections in one transaction and emit callbacks once."""
     callbacks = []
 
     for data in detections.values():
@@ -130,6 +129,29 @@ def _callback_data(account, item, link=None):
     }
 
 
+def _save_scan_snapshot(session, history, account):
+    services = session.scalars(
+        select(AccountService)
+        .where(AccountService.account_id == account.id)
+        .order_by(AccountService.confidence_score.desc())
+    ).all()
+    for link in services:
+        service = link.service
+        session.add(
+            ScanServiceSnapshot(
+                scan_history_id=history.id,
+                service_name=service.name if service else "Service inconnu",
+                category=service.category if service else "Autre",
+                confidence_score=link.confidence_score or 0,
+                trace_count=link.trace_count or 0,
+                status=link.status or "À vérifier",
+                priority=link.priority or "Normale",
+                destination_email=link.destination_email,
+                notes=link.notes,
+            )
+        )
+
+
 def scan_account(
     session,
     account_id,
@@ -166,83 +188,48 @@ def scan_account(
             cancel_check=cancel_check,
         ):
             if cancel_check and cancel_check():
-                _persist_partial(
-                    session,
-                    account,
-                    detections,
-                    detection_callback,
-                )
+                _persist_partial(session, account, detections, detection_callback)
                 raise ScanCancelled()
 
             messages_scanned += 1
             message_id = message.get("id", "")
-            results = detect_message(
-                message,
-                CATALOG,
-                catalog_index=catalog_index,
-            )
+            results = detect_message(message, CATALOG, catalog_index=catalog_index)
 
             for detection in results:
                 key = detection.service["name"]
 
                 if detection.service.get("unknown"):
-                    item = unknown_candidates.setdefault(
-                        key,
-                        _new_detection_bucket(detection),
-                    )
+                    item = unknown_candidates.setdefault(key, _new_detection_bucket(detection))
                     _add_detection(item, detection, message_id)
-
                     if item["count"] < UNKNOWN_MIN_MESSAGES:
                         continue
                     detections[key] = item
                 else:
-                    item = detections.setdefault(
-                        key,
-                        _new_detection_bucket(detection),
-                    )
+                    item = detections.setdefault(key, _new_detection_bucket(detection))
                     _add_detection(item, detection, message_id)
 
-                # Update the live UI immediately without touching the database.
-                # Database persistence remains batched every 50 messages.
                 if detection_callback:
                     detection_callback(_callback_data(account, item))
 
             if messages_scanned - last_persist >= PERSIST_EVERY_MESSAGES:
-                _persist_partial(
-                    session,
-                    account,
-                    detections,
-                    detection_callback,
-                )
+                _persist_partial(session, account, detections, detection_callback)
                 last_persist = messages_scanned
 
             if progress:
-                progress(
-                    messages_scanned,
-                    estimated_total,
-                    len(detections),
-                )
+                progress(messages_scanned, estimated_total, len(detections))
 
-        _persist_partial(
-            session,
-            account,
-            detections,
-            detection_callback,
-        )
+        _persist_partial(session, account, detections, detection_callback)
 
         account.last_scan_at = datetime.now(timezone.utc)
         history.finished_at = datetime.now(timezone.utc)
         history.status = "completed"
         history.messages_scanned = messages_scanned
         history.services_detected = len(detections)
+        _save_scan_snapshot(session, history, account)
         session.commit()
 
         if progress:
-            progress(
-                messages_scanned,
-                estimated_total,
-                len(detections),
-            )
+            progress(messages_scanned, estimated_total, len(detections))
         return messages_scanned, len(detections)
 
     except ScanCancelled:
