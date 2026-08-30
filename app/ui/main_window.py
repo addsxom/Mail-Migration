@@ -1,9 +1,9 @@
 import sys
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QStackedWidget, QLabel
+    QPushButton, QStackedWidget, QLabel, QMenu, QMessageBox
 )
 
 from app.core.account_state import AccountState
@@ -12,7 +12,7 @@ from app.database.database import init_db
 from .dashboard import DashboardPage
 from .accounts import AccountsPage
 from . import services as services_module
-from .services import ServicesPage
+from .services import ServicesPage, MIGRATION_STATUSES
 
 
 STYLE = """
@@ -106,6 +106,110 @@ def _circular_service_icon(name, category=""):
 
 # Keep the existing service/icon system, but normalize every displayed logo to a circle.
 services_module._service_icon = _circular_service_icon
+
+
+# ---------------------------------------------------------------------------
+# Runtime safeguards for the Services page.
+# These keep live-scan rendering from fighting with the context menu and add
+# an explicit confirmation before destructive cleanup.
+# ---------------------------------------------------------------------------
+_original_schedule_live_render = services_module.ServicesPage._schedule_live_render
+_original_render_live_rows_deferred = services_module.ServicesPage._render_live_rows_deferred
+_original_cleanup_scanned_services = services_module.ServicesPage.cleanup_scanned_services
+
+
+def _safe_schedule_live_render(self):
+    if getattr(self, "_context_menu_open", False):
+        self._live_render_pending = False
+        return
+    return _original_schedule_live_render(self)
+
+
+def _safe_render_live_rows_deferred(self):
+    self._live_render_pending = False
+    if getattr(self, "_context_menu_open", False):
+        return
+    if self.live_scan:
+        self._render_live_rows()
+
+
+def _safe_show_service_context_menu(self, position):
+    index = self.table.indexAt(position)
+    if not index.isValid() or not (0 <= index.row() < len(self.row_details)):
+        return
+
+    row = index.row()
+    self._context_menu_open = True
+
+    try:
+        menu = QMenu(self.table)
+        menu.setStyleSheet("""
+            QMenu {
+                background: #171b22;
+                border: 1px solid #303846;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                color: #E7EAF0;
+                background: transparent;
+                padding: 8px 18px;
+                margin: 0;
+                border-radius: 5px;
+            }
+            QMenu::item:selected {
+                color: #E7EAF0;
+                background: #303846;
+            }
+        """)
+
+        details_action = menu.addAction("Plus de détails")
+        status_menu = menu.addMenu("Statut de migration")
+        status_actions = {}
+        for status in MIGRATION_STATUSES:
+            action = status_menu.addAction(status)
+            status_actions[action] = status
+        destination_action = menu.addAction("Définir l'adresse de destination…")
+
+        chosen = menu.exec(self.table.viewport().mapToGlobal(position))
+
+    finally:
+        self._context_menu_open = False
+        self._live_render_pending = False
+
+    # Only resolve the database row after the menu has closed. This avoids a
+    # database lookup while Qt is displaying the context menu during a scan.
+    if chosen == details_action:
+        QTimer.singleShot(0, lambda: self._open_details_for_row(row, index.column()))
+    elif chosen == destination_action:
+        QTimer.singleShot(0, lambda: self._set_destination_for_row(row))
+    elif chosen in status_actions:
+        status = status_actions[chosen]
+        QTimer.singleShot(0, lambda: self._set_status_for_row(row, status))
+    elif self.live_scan:
+        self._render_live_rows()
+
+
+def _confirmed_cleanup_scanned_services(self):
+    answer = QMessageBox.question(
+        self,
+        "Nettoyage des services",
+        "Voulez-vous vraiment supprimer tous les services détectés par les scans ?\n\n"
+        "Les comptes Google et leurs autorisations ne seront pas supprimés.",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+
+    if answer != QMessageBox.Yes:
+        return
+
+    return _original_cleanup_scanned_services(self)
+
+
+services_module.ServicesPage._schedule_live_render = _safe_schedule_live_render
+services_module.ServicesPage._render_live_rows_deferred = _safe_render_live_rows_deferred
+services_module.ServicesPage._show_service_context_menu = _safe_show_service_context_menu
+services_module.ServicesPage.cleanup_scanned_services = _confirmed_cleanup_scanned_services
 
 
 class MainWindow(QMainWindow):
