@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 from sqlalchemy import select
 
@@ -20,6 +21,16 @@ PERSIST_EVERY_MESSAGES = 50
 
 def _persist_detection(session, account, data):
     service = get_or_create_service(session, data["definition"])
+    sender_email = data.get("sender_email")
+    if sender_email:
+        try:
+            senders = json.loads(service.senders_json or "[]")
+        except (TypeError, ValueError):
+            senders = []
+        if sender_email not in senders:
+            senders.append(sender_email)
+            service.senders_json = json.dumps(senders, ensure_ascii=False)
+
     link = session.scalar(
         select(AccountService).where(
             AccountService.account_id == account.id,
@@ -47,9 +58,7 @@ def _persist_detection(session, account, data):
     existing_ids = {
         row.message_id
         for row in session.scalars(
-            select(ScanTrace).where(
-                ScanTrace.account_service_id == link.id
-            )
+            select(ScanTrace).where(ScanTrace.account_service_id == link.id)
         )
     }
 
@@ -74,14 +83,11 @@ def _persist_detection(session, account, data):
 
 def _persist_partial(session, account, detections, detection_callback=None):
     callbacks = []
-
     for data in detections.values():
         link = _persist_detection(session, account, data)
         if detection_callback:
             callbacks.append((data, link))
-
     session.commit()
-
     if detection_callback:
         for data, link in callbacks:
             detection_callback(_callback_data(account, data, link))
@@ -95,6 +101,7 @@ def _new_detection_bucket(detection):
         "count": 0,
         "message_ids": [],
         "reliability": detection.reliability,
+        "sender_email": detection.sender_email,
     }
 
 
@@ -103,6 +110,8 @@ def _add_detection(bucket, detection, message_id):
     bucket["signals"].update(detection.signals)
     bucket["count"] += 1
     bucket["reliability"] = detection.reliability
+    if detection.sender_email:
+        bucket["sender_email"] = detection.sender_email
     if message_id and message_id not in bucket["message_ids"]:
         bucket["message_ids"].append(message_id)
 
@@ -126,6 +135,7 @@ def _callback_data(account, item, link=None):
         "last_detected_at": link.last_detected_at if link else None,
         "signals": sorted(item["signals"]),
         "reliability": item.get("reliability", {}),
+        "sender_email": item.get("sender_email"),
     }
 
 
@@ -152,14 +162,7 @@ def _save_scan_snapshot(session, history, account):
         )
 
 
-def scan_account(
-    session,
-    account_id,
-    progress=None,
-    cancel_check=None,
-    query="",
-    detection_callback=None,
-):
+def scan_account(session, account_id, progress=None, cancel_check=None, query="", detection_callback=None):
     account = session.get(GoogleAccount, account_id)
     if not account:
         raise ValueError("Compte introuvable.")
@@ -182,11 +185,7 @@ def scan_account(
         if progress:
             progress(0, estimated_total, 0)
 
-        for message in iter_message_metadata(
-            account.email,
-            query=query,
-            cancel_check=cancel_check,
-        ):
+        for message in iter_message_metadata(account.email, query=query, cancel_check=cancel_check):
             if cancel_check and cancel_check():
                 _persist_partial(session, account, detections, detection_callback)
                 raise ScanCancelled()
@@ -197,7 +196,6 @@ def scan_account(
 
             for detection in results:
                 key = detection.service["name"]
-
                 if detection.service.get("unknown"):
                     item = unknown_candidates.setdefault(key, _new_detection_bucket(detection))
                     _add_detection(item, detection, message_id)
@@ -219,7 +217,6 @@ def scan_account(
                 progress(messages_scanned, estimated_total, len(detections))
 
         _persist_partial(session, account, detections, detection_callback)
-
         account.last_scan_at = datetime.now(timezone.utc)
         history.finished_at = datetime.now(timezone.utc)
         history.status = "completed"
