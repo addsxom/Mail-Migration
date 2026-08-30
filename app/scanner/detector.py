@@ -3,6 +3,7 @@ from email.utils import parseaddr
 
 from app.scanner.catalog_index import CatalogIndex
 from app.scanner.scorer import calculate_score
+from app.scanner.intelligent_services import resolve_service
 
 
 IGNORED_UNKNOWN_DOMAINS = {
@@ -114,6 +115,26 @@ def _unknown_detection(sender, domain, subject, definitions):
     return Detection(definition, min(45.0, score), ["unknown_domain"], reliability, _sender_address(sender))
 
 
+def _intelligent_detection(sender, domain, subject):
+    definition = resolve_service(domain, _sender_display_name(sender), subject)
+    if not definition:
+        return None
+    return Detection(
+        definition,
+        75.0,
+        ["intelligent_domain" if domain else "intelligent_name"],
+        {
+            "official_domain": bool(domain),
+            "known_sender": False,
+            "authentication_available": False,
+            "spf": None,
+            "dkim": None,
+            "dmarc": None,
+        },
+        _sender_address(sender),
+    )
+
+
 def detect_message(message, service_definitions=None, catalog_index=None):
     headers = {
         h.get("name", "").casefold(): h.get("value", "")
@@ -162,8 +183,14 @@ def detect_message(message, service_definitions=None, catalog_index=None):
         reliability["authentication_passed"] = bool(checks) and all(checks)
         results.append(Detection(definition, calculate_score(signals), signals, reliability=reliability, sender_email=sender_email))
 
-    unknown = _unknown_detection(sender, domain, subject, definitions)
-    if unknown:
-        results.append(unknown)
+    if not results:
+        intelligent = _intelligent_detection(sender, domain, subject)
+        if intelligent:
+            results.append(intelligent)
+
+    if not results:
+        unknown = _unknown_detection(sender, domain, subject, definitions)
+        if unknown:
+            results.append(unknown)
 
     return sorted(results, key=lambda detection: detection.score, reverse=True)
