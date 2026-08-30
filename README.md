@@ -211,19 +211,6 @@ Les définitions sont principalement dans :
 app/services/builtin_catalog.py
 ```
 
-Exemple :
-
-```python
-{
-    "name": "Exemple",
-    "category": "Jeux",
-    "domains": ["example.com"],
-    "senders": ["noreply@example.com"],
-    "keywords": ["Exemple", "compte"],
-    "aliases": ["Example Service"],
-}
-```
-
 ---
 
 ## 🗂️ Structure du projet
