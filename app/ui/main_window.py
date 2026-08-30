@@ -11,6 +11,7 @@ from . import services as services_module
 from .services import ServicesPage, MIGRATION_STATUSES, ServiceDetailsDialog
 from .export import ExportPage
 from .settings import SettingsPage
+from . import scan_smooth
 
 STYLE = """
 QMainWindow, QWidget { background:#111318; color:#ECEEF2; font-family:Segoe UI; font-size:14px; }
