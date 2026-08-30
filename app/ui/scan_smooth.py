@@ -1,6 +1,8 @@
 import time
 from PySide6.QtCore import QTimer
-from app.ui.accounts import AccountsPage
+from app.database.database import get_session
+from app.ui.accounts import AccountsPage, ScanWorker
+from app.scanner.scanner import scan_account, ScanCancelled
 
 _original_accounts_init = AccountsPage.__init__
 _original_start_scan = AccountsPage.start_scan
@@ -57,7 +59,7 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     self._smooth_target = max(0, min(100, int(round(overall))))
 
     now = time.monotonic()
-    if now - getattr(self, "_scan_last_status", 0.0) < 0.08 and mails != total:
+    if now - getattr(self, "_scan_last_status", 0.0) < 0.15 and mails != total:
         return
     self._scan_last_status = now
 
@@ -84,7 +86,73 @@ def _scan_account_started(self, account_id, position, total_accounts):
     self.status.setText(f"Compte {position} / {total_accounts}   •   Scan en préparation…")
 
 
+def _worker_run(self):
+    completed = 0
+    total_accounts = len(self.account_ids)
+    try:
+        for account_id in self.account_ids:
+            if self._cancel:
+                self.cancelled.emit(account_id)
+                break
+            position = self.positions.get(account_id, completed + 1)
+            total_positions = max(position, max(self.positions.values(), default=total_accounts))
+            self.account_started.emit(account_id, position, total_positions)
+            session = get_session()
+            last_progress_emit = 0.0
+            last_progress_values = None
+            last_detection_emit = 0.0
+            pending_detections = {}
+
+            def emit_progress(m, t, s, aid=account_id):
+                nonlocal last_progress_emit, last_progress_values
+                now = time.monotonic()
+                values = (m, t, s, completed)
+                if m == t or now - last_progress_emit >= 0.15:
+                    self.progress.emit(aid, m, t, s, completed)
+                    last_progress_emit = now
+                    last_progress_values = values
+
+            def emit_detection(data, aid=account_id):
+                nonlocal last_detection_emit
+                pending_detections[data.get("name", "")] = data
+                now = time.monotonic()
+                if now - last_detection_emit >= 0.15:
+                    for item in pending_detections.values():
+                        self.detection.emit(aid, item)
+                    pending_detections.clear()
+                    last_detection_emit = now
+
+            try:
+                result = scan_account(
+                    session,
+                    account_id,
+                    progress=emit_progress,
+                    cancel_check=lambda: self._cancel,
+                    detection_callback=emit_detection,
+                )
+                for item in pending_detections.values():
+                    self.detection.emit(account_id, item)
+                pending_detections.clear()
+            except ScanCancelled:
+                self.cancelled.emit(account_id)
+                break
+            except Exception as exc:
+                self.error.emit(account_id, str(exc))
+                continue
+            finally:
+                session.close()
+            messages, services = result
+            completed += 1
+            self.account_finished.emit(account_id, messages, services)
+            self.progress.emit(account_id, messages, messages, services, completed)
+        self.finished.emit()
+    except Exception as exc:
+        self.error.emit(0, str(exc))
+        self.finished.emit()
+
+
 AccountsPage.__init__ = _accounts_init
 AccountsPage.start_scan = _start_scan
 AccountsPage.scan_progress = _scan_progress
 AccountsPage.scan_account_started = _scan_account_started
+ScanWorker.run = _worker_run
