@@ -110,16 +110,32 @@ services_module._service_icon = _circular_service_icon
 
 # ---------------------------------------------------------------------------
 # Runtime safeguards for the Services page.
-# These keep live-scan rendering from fighting with the context menu and add
-# an explicit confirmation before destructive cleanup.
+# These keep live-scan rendering from fighting with the context menu and any
+# migration dialog that is currently open.
 # ---------------------------------------------------------------------------
 _original_schedule_live_render = services_module.ServicesPage._schedule_live_render
 _original_render_live_rows_deferred = services_module.ServicesPage._render_live_rows_deferred
 _original_cleanup_scanned_services = services_module.ServicesPage.cleanup_scanned_services
+_original_open_details_for_row = services_module.ServicesPage._open_details_for_row
+_original_set_destination_for_row = services_module.ServicesPage._set_destination_for_row
+_original_set_status_for_row = services_module.ServicesPage._set_status_for_row
+
+
+def _interaction_open(self):
+    return (
+        getattr(self, "_context_menu_open", False)
+        or getattr(self, "_interaction_dialog_open", False)
+    )
+
+
+def _render_after_interaction(self):
+    self._live_render_pending = False
+    if self.live_scan and not _interaction_open(self):
+        self._render_live_rows()
 
 
 def _safe_schedule_live_render(self):
-    if getattr(self, "_context_menu_open", False):
+    if _interaction_open(self):
         self._live_render_pending = False
         return
     return _original_schedule_live_render(self)
@@ -127,7 +143,7 @@ def _safe_schedule_live_render(self):
 
 def _safe_render_live_rows_deferred(self):
     self._live_render_pending = False
-    if getattr(self, "_context_menu_open", False):
+    if _interaction_open(self):
         return
     if self.live_scan:
         self._render_live_rows()
@@ -177,8 +193,6 @@ def _safe_show_service_context_menu(self, position):
         self._context_menu_open = False
         self._live_render_pending = False
 
-    # Only resolve the database row after the menu has closed. This avoids a
-    # database lookup while Qt is displaying the context menu during a scan.
     if chosen == details_action:
         QTimer.singleShot(0, lambda: self._open_details_for_row(row, index.column()))
     elif chosen == destination_action:
@@ -188,6 +202,33 @@ def _safe_show_service_context_menu(self, position):
         QTimer.singleShot(0, lambda: self._set_status_for_row(row, status))
     elif self.live_scan:
         self._render_live_rows()
+
+
+def _safe_open_details_for_row(self, row, column):
+    self._interaction_dialog_open = True
+    try:
+        return _original_open_details_for_row(self, row, column)
+    finally:
+        self._interaction_dialog_open = False
+        _render_after_interaction(self)
+
+
+def _safe_set_destination_for_row(self, row):
+    self._interaction_dialog_open = True
+    try:
+        return _original_set_destination_for_row(self, row)
+    finally:
+        self._interaction_dialog_open = False
+        _render_after_interaction(self)
+
+
+def _safe_set_status_for_row(self, row, status):
+    self._interaction_dialog_open = True
+    try:
+        return _original_set_status_for_row(self, row, status)
+    finally:
+        self._interaction_dialog_open = False
+        _render_after_interaction(self)
 
 
 def _confirmed_cleanup_scanned_services(self):
@@ -209,6 +250,9 @@ def _confirmed_cleanup_scanned_services(self):
 services_module.ServicesPage._schedule_live_render = _safe_schedule_live_render
 services_module.ServicesPage._render_live_rows_deferred = _safe_render_live_rows_deferred
 services_module.ServicesPage._show_service_context_menu = _safe_show_service_context_menu
+services_module.ServicesPage._open_details_for_row = _safe_open_details_for_row
+services_module.ServicesPage._set_destination_for_row = _safe_set_destination_for_row
+services_module.ServicesPage._set_status_for_row = _safe_set_status_for_row
 services_module.ServicesPage.cleanup_scanned_services = _confirmed_cleanup_scanned_services
 
 
