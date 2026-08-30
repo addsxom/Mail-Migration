@@ -30,8 +30,7 @@ echo  [2/3] Dependances              OK
 goto :launch
 
 :install_deps
-echo  [2/3] Dependances              Installation...
-"%PYTHON%" -m pip install -r requirements.txt --disable-pip-version-check -q
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%PYTHON% -m pip install -r requirements.txt --disable-pip-version-check -q'; $job=Start-Job -ScriptBlock { param($cmd) cmd /c $cmd } -ArgumentList $p; $chars='|','/','-','\\'; $i=0; while($job.State -eq 'Running'){ Write-Host -NoNewline ([char]13 + ' [2/3] Dependances              Installation... ' + $chars[$i %% 4]); $i++; Start-Sleep -Milliseconds 120; }; Receive-Job $job | Out-Host; $code=if($job.State -eq 'Failed'){1}else{0}; Remove-Job $job -Force; Write-Host ([char]13 + ' ' + (' ' * 65) + [char]13); exit $code"
 if errorlevel 1 goto :deps_error
 echo  [2/3] Dependances              OK
 
