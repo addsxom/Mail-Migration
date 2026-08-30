@@ -115,19 +115,41 @@ def _download_service_logo(service_name, sender_email, assets, key):
     return False
 
 
+def _is_placeholder_avatar(path):
+    if path.suffix.lower() != ".svg":
+        return False
+    try:
+        content = path.read_text(encoding="utf-8", errors="ignore").lower()
+    except OSError:
+        return False
+    return '<circle cx="32" cy="32" r="30" fill="#303846"' in content and '<text x="32" y="35"' in content
+
+
+def _remove_placeholder_avatar(assets, key):
+    path = assets / f"{key}.svg"
+    if _is_placeholder_avatar(path):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
 def _write_service_avatar(service_name, sender_email, account_email):
     assets = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
     assets.mkdir(parents=True, exist_ok=True)
     key = _service_key(service_name)
 
     existing = [assets / f"{key}{suffix}" for suffix in (".png", ".jpg", ".jpeg", ".svg", ".webp")]
-    if any(path.exists() and path.stat().st_size > 32 for path in existing):
+    real_existing = [path for path in existing if path.exists() and path.stat().st_size > 32 and not _is_placeholder_avatar(path)]
+    if real_existing:
         return
+
+    _remove_placeholder_avatar(assets, key)
 
     if sender_email:
         try:
             photo = get_profile_photo(sender_email, account_email)
-            if photo:
+            if photo and Path(photo).exists() and Path(photo).stat().st_size > 32:
                 destination = assets / f"{key}.jpg"
                 shutil.copyfile(photo, destination)
                 return
