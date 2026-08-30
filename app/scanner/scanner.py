@@ -1,11 +1,15 @@
 from datetime import datetime, timezone
+from pathlib import Path
 import json
+import re
+import shutil
 
 from sqlalchemy import select
 
 from app.database.models import GoogleAccount, AccountService, ScanHistory, ScanServiceSnapshot, ScanTrace
 from app.database.repositories import get_or_create_service
 from app.google.gmail import get_message_count, iter_message_metadata
+from app.google.profile_photos import get_profile_photo
 from app.services.builtin_catalog import CATALOG
 from .catalog_index import CatalogIndex
 from .detector import detect_message
@@ -19,6 +23,44 @@ UNKNOWN_MIN_MESSAGES = 2
 PERSIST_EVERY_MESSAGES = 50
 
 
+def _service_key(name):
+    return re.sub(r"[^a-z0-9]+", "-", str(name or "service").strip().lower()).strip("-") or "service"
+
+
+def _service_initials(name):
+    words = [word for word in re.split(r"\s+", str(name or "Service").strip()) if word]
+    if not words:
+        return "?"
+    if len(words) == 1:
+        value = re.sub(r"[^A-Za-z0-9]", "", words[0])
+        return (value[:2] or "?").upper()
+    return (words[0][0] + words[1][0]).upper()
+
+
+def _write_service_avatar(service_name, sender_email, account_email):
+    assets = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
+    assets.mkdir(parents=True, exist_ok=True)
+    key = _service_key(service_name)
+    for suffix in (".png", ".jpg", ".jpeg", ".svg"):
+        candidate = assets / f"{key}{suffix}"
+        if candidate.exists():
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+    photo = get_profile_photo(sender_email, account_email) if sender_email else None
+    if photo:
+        destination = assets / f"{key}.jpg"
+        try:
+            shutil.copyfile(photo, destination)
+            return
+        except OSError:
+            pass
+    initials = _service_initials(service_name)
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#303846"/><text x="32" y="35" text-anchor="middle" dominant-baseline="middle" fill="#E7EAF0" font-family="Arial,sans-serif" font-size="18" font-weight="700">{initials}</text></svg>'''
+    (assets / f"{key}.svg").write_text(svg, encoding="utf-8")
+
+
 def _persist_detection(session, account, data):
     service = get_or_create_service(session, data["definition"])
     sender_email = data.get("sender_email")
@@ -30,6 +72,10 @@ def _persist_detection(session, account, data):
         if sender_email not in senders:
             senders.append(sender_email)
             service.senders_json = json.dumps(senders, ensure_ascii=False)
+        try:
+            _write_service_avatar(service.name, sender_email, account.email)
+        except Exception:
+            pass
 
     link = session.scalar(
         select(AccountService).where(
