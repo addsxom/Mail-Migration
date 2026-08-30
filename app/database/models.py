@@ -62,21 +62,6 @@ class ScanHistory(Base):
     services_detected: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-class ScanSnapshot(Base):
-    __tablename__ = "scan_snapshots"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    scan_history_id: Mapped[int] = mapped_column(ForeignKey("scan_history.id"), index=True)
-    account_id: Mapped[int] = mapped_column(ForeignKey("google_accounts.id"), index=True)
-    service_name: Mapped[str] = mapped_column(String(200))
-    category: Mapped[str] = mapped_column(String(100), default="Autre")
-    confidence_score: Mapped[float] = mapped_column(Float, default=0)
-    trace_count: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(50), default="À vérifier")
-    priority: Mapped[str] = mapped_column(String(50), default="Normale")
-    destination_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    signals_json: Mapped[str] = mapped_column(Text, default="[]")
-
 class ScanTrace(Base):
     __tablename__ = "scan_traces"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
