@@ -34,6 +34,15 @@ QPushButton:hover {
 QPushButton:pressed {
     background: #303744;
 }
+QPushButton:checked {
+    background: #303846;
+    border: 1px solid #71819A;
+    color: #FFFFFF;
+}
+QPushButton:checked:hover {
+    background: #363D49;
+    border: 1px solid #7B8AA2;
+}
 QLabel#title {
     font-size: 22px;
     font-weight: 700;
