@@ -1,5 +1,6 @@
 import hashlib
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from googleapiclient.discovery import build
@@ -24,7 +25,10 @@ def _download(url, destination, token=None):
     request = Request(url, headers=headers)
     with urlopen(request, timeout=8) as response:
         data = response.read()
-    if not data:
+        content_type = (response.headers.get("Content-Type") or "").lower()
+    if not data or len(data) < 32:
+        return False
+    if "text/html" in content_type or data[:32].lstrip().lower().startswith((b"<html", b"<!doctype")):
         return False
     destination.write_bytes(data)
     return True
@@ -88,6 +92,31 @@ def _gravatar_photo(sender_email):
     return f"https://www.gravatar.com/avatar/{digest}?s=128&d=404"
 
 
+def _domain_photo_urls(sender_email):
+    domain = sender_email.rsplit("@", 1)[-1].strip().casefold()
+    if not domain or "." not in domain:
+        return []
+    encoded = quote(domain, safe="")
+    return [
+        f"https://www.google.com/s2/favicons?sz=128&domain={encoded}",
+        f"https://icons.duckduckgo.com/ip3/{domain}.ico",
+        f"https://{domain}/favicon.ico",
+        f"https://www.{domain}/favicon.ico" if not domain.startswith("www.") else None,
+    ]
+
+
+def _download_domain_photo(sender_email, destination):
+    for url in _domain_photo_urls(sender_email):
+        if not url:
+            continue
+        try:
+            if _download(url, destination):
+                return True
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError):
+            continue
+    return False
+
+
 def get_profile_photo(sender_email, account_email):
     sender_email = (sender_email or "").strip().casefold()
     account_email = (account_email or "").strip().casefold()
@@ -101,6 +130,12 @@ def get_profile_photo(sender_email, account_email):
     try:
         match = _load_google_contacts(account_email).get(sender_email)
         if match and _download(match[0], cached, match[1]):
+            return str(cached)
+    except Exception:
+        pass
+
+    try:
+        if _download_domain_photo(sender_email, cached):
             return str(cached)
     except Exception:
         pass
