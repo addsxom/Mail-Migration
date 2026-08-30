@@ -37,10 +37,11 @@ class AccountsPage(QWidget):
     def refresh(self,selected_id=None):
         current_id=selected_id if selected_id is not None else self.selected_id(); self.list.blockSignals(True); self.list.clear(); session=get_session()
         try:
-            for account in get_accounts(session):
-                state=credential_state(account.email) if account.active else "Désactivé"; label=account.display_name or account.email; text=f"{label}  —  {account.email}  —  {state}"
+            accounts=list(get_accounts(session))
+            for number,account in enumerate(accounts,1):
+                state=credential_state(account.email) if account.active else "Désactivé"; text=f"Numéro {number} - {account.email}  —  {state}"
                 if account.last_scan_at:text+=f"  —  Dernier scan : {account.last_scan_at:%d.%m.%Y %H:%M}"
-                item=QListWidgetItem(text); item.setData(Qt.UserRole,account.id); item.setToolTip(f"Compte : {account.email}\nNom : {label}\nÉtat OAuth : {state}"); self.list.addItem(item)
+                item=QListWidgetItem(text); item.setData(Qt.UserRole,account.id); item.setToolTip(f"Compte n°{number} : {account.email}\nÉtat OAuth : {state}"); self.list.addItem(item)
                 if account.id==current_id:item.setSelected(True);self.list.setCurrentItem(item)
         finally:session.close()
         self.list.blockSignals(False);self.selection_changed()
