@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboB
 from sqlalchemy import select
 
 from app.database.database import get_session
-from app.database.models import GoogleAccount, ScanHistory, AccountService, Service
+from app.database.models import GoogleAccount, ScanHistory, ScanServiceSnapshot
 
 
 class ExportPage(QWidget):
@@ -85,12 +85,9 @@ class ExportPage(QWidget):
             if not history or history.status != "completed":
                 return None,[]
             account = session.get(GoogleAccount,history.account_id)
-            services = session.scalars(select(AccountService).where(AccountService.account_id == history.account_id).order_by(AccountService.confidence_score.desc())).all()
-            data = []
-            for link in services:
-                service = session.get(Service,link.service_id)
-                data.append({"name":service.name if service else "Service inconnu","category":service.category if service else "Autre","score":link.confidence_score or 0,"traces":link.trace_count or 0,"status":link.status or "À vérifier","priority":link.priority or "Normale","destination":link.destination_email or "","notes":link.notes or ""})
-            return {"history":history,"account":account},data
+            snapshots = session.scalars(select(ScanServiceSnapshot).where(ScanServiceSnapshot.scan_history_id == history.id).order_by(ScanServiceSnapshot.confidence_score.desc(),ScanServiceSnapshot.service_name.asc())).all()
+            services = [{"name":snapshot.service_name,"category":snapshot.category or "Autre","score":snapshot.confidence_score or 0,"traces":snapshot.trace_count or 0,"status":snapshot.status or "À vérifier","priority":snapshot.priority or "Normale","destination":snapshot.destination_email or "","notes":snapshot.notes or ""} for snapshot in snapshots]
+            return {"history":history,"account":account},services
         finally:
             session.close()
 
