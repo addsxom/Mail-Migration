@@ -27,7 +27,7 @@ _original_service_icon = services_module._service_icon
 
 def _make_circular_icon(icon):
     if not isinstance(icon, QIcon) or icon.isNull(): return icon
-    cache_key = id(icon)
+    cache_key=id(icon)
     if cache_key in _CIRCULAR_ICON_CACHE: return _CIRCULAR_ICON_CACHE[cache_key]
     size=64; pixmap=QPixmap(size,size); pixmap.fill(Qt.transparent)
     painter=QPainter(pixmap); painter.setRenderHint(QPainter.Antialiasing,True); painter.setRenderHint(QPainter.SmoothPixmapTransform,True)
@@ -39,6 +39,15 @@ def _make_circular_icon(icon):
 
 def _circular_service_icon(name,category=""): return _make_circular_icon(_original_service_icon(name,category))
 services_module._service_icon=_circular_service_icon
+
+# Keep the existing account page and only rename its persisted-scan label.
+_original_accounts_refresh=AccountsPage.refresh
+def _accounts_refresh_with_saved_label(self,selected_id=None):
+    _original_accounts_refresh(self,selected_id)
+    for i in range(self.list.count()):
+        item=self.list.item(i)
+        item.setText(item.text().replace("Dernier scan :", "✓ Scan sauvegardé :"))
+AccountsPage.refresh=_accounts_refresh_with_saved_label
 
 _original_schedule_live_render=services_module.ServicesPage._schedule_live_render
 _original_render_live_rows_deferred=services_module.ServicesPage._render_live_rows_deferred
