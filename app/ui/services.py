@@ -86,7 +86,7 @@ class ServiceDetailsDialog(QDialog):
         title=QLabel(details.get("name","Service")); title.setObjectName("serviceDetailsTitle"); cl.addWidget(title)
         subtitle=QLabel(details.get("category","Autre")); subtitle.setObjectName("serviceDetailsSubtitle"); cl.addWidget(subtitle)
         grid=QGridLayout(); grid.setHorizontalSpacing(18); grid.setVerticalSpacing(10)
-        fields=[("Compte Gmail",details.get("account_email","—")),("Confiance",self._format_score(details.get("score"))),("Traces",str(details.get("count",0))),("Priorité",details.get("priority","Normale")),("Première détection",self._format_date(details.get("first_detected_at"))),("Dernière détection",self._format_date(details.get("last_detected_at"))),("Sous-catégorie",details.get("subcategory","—"))]
+        fields=[("Compte Gmail",details.get("account_email","—")),("Confiance",self._format_score(details.get("score"))), ("Traces",str(details.get("count",0))), ("Priorité",details.get("priority","Normale")), ("Première détection",self._format_date(details.get("first_detected_at"))), ("Dernière détection",self._format_date(details.get("last_detected_at"))), ("Sous-catégorie",details.get("subcategory","—"))]
         for row,(label_text,value_text) in enumerate(fields):
             label=QLabel(label_text); label.setProperty("class","detailLabel")
             value=QLabel(str(value_text or "—")); value.setWordWrap(True); value.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -183,7 +183,7 @@ class ServiceTable(QTableWidget):
 
 class ServicesPage(QWidget):
     def __init__(self):
-        super().__init__(); self.active_account_id=None; self.live_scan=False; self.live_account_ids=set(); self.live_rows={}; self.live_account_emails={}; self._all_rows=[]; self._all_details=[]; self.row_details=[]; self._status_filters=set(); self._category_filter="Toutes les catégories"; self._live_render_pending=False; self._icon_loading=False
+        super().__init__(); self.active_account_id=None; self.live_scan=False; self.live_account_ids=set(); self.live_rows={}; self.live_account_emails={}; self._all_rows=[]; self._all_details=[]; self.row_details=[]; self._status_filters=set(); self._category_filter="Toutes les catégories"; self._live_render_pending=False; self._icon_loading=False; self._interaction_blocked=False; self._render_after_interaction=False
         layout=QVBoxLayout(self); title=QLabel("Inventaire des services"); title.setObjectName("title"); layout.addWidget(title)
         search_container=QFrame(); search_container.setObjectName("serviceSearchContainer"); search_container.setStyleSheet("QFrame#serviceSearchContainer{border:1px solid #303846;border-radius:10px;background:#171b22;} QFrame#serviceSearchContainer:focus-within{border:1px solid #58677d;} QLabel#serviceSearchIcon{border:none;background:transparent;padding-left:12px;padding-right:4px;font-size:17px;} QLineEdit#serviceSearchInput{border:none;background:transparent;padding:0 10px 0 4px;color:#E7EAF0;} QLineEdit#serviceSearchInput:focus{border:none;}")
         search_layout=QHBoxLayout(search_container); search_layout.setContentsMargins(0,0,0,0); search_layout.setSpacing(0); search_icon=QLabel("🔎"); search_icon.setObjectName("serviceSearchIcon"); search_icon.setAlignment(Qt.AlignCenter); search_layout.addWidget(search_icon)
@@ -192,7 +192,7 @@ class ServicesPage(QWidget):
         for status in MIGRATION_STATUSES:
             b=QPushButton(status); b.setCheckable(True); b.clicked.connect(lambda checked,value=status:self._toggle_status_filter(value,checked)); self.status_buttons[status]=b; actions.addWidget(b)
         actions.addStretch(); self.category_combo=QComboBox(); self.category_combo.addItem("Toutes les catégories"); self.category_combo.currentTextChanged.connect(self._set_category_filter); actions.addWidget(self.category_combo); self.cleanup_button=QPushButton("🧹 Nettoyage"); self.cleanup_button.clicked.connect(self.cleanup_scanned_services); actions.addWidget(self.cleanup_button); layout.addLayout(actions)
-        self.table=ServiceTable(0,6); self.table.setHorizontalHeaderLabels(["Compte","Service","Catégorie","Confiance","Traces","Statut"]); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.table.verticalHeader().setVisible(False); self.table.verticalHeader().setDefaultSectionSize(54); self.table.setIconSize(QSize(28,28)); self.table.setSelectionMode(QTableWidget.NoSelection); self.table.setEditTriggers(QTableWidget.NoEditTriggers); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.customContextMenuRequested.connect(self._show_service_context_menu); self.table.setItemDelegate(ServiceTableDelegate(self.table)); self.table.setStyleSheet("QTableWidget{background:transparent;border:none;gridline-color:transparent;color:#E7EAF0;outline:none;} QTableWidget::item{background:transparent;border:none;color:#E7EAF0;padding:0;} QTableWidget::item:selected,QTableWidget::item:focus{background:transparent;border:none;outline:none;}"); layout.addWidget(self.table)
+        self.table=ServiceTable(0,6); self.table.setHorizontalHeaderLabels(["Compte","Service","Catégorie","Confiance","Traces","Statut"]); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch); self.table.verticalHeader().setVisible(False); self.table.verticalHeader().setDefaultSectionSize(54); self.table.setIconSize(QSize(28,28)); self.table.setSelectionMode(QTableWidget.NoSelection); self.table.setEditTriggers(QTableWidget.NoEditTriggers); self.table.setContextMenuPolicy(Qt.CustomContextMenu); self.table.customContextMenuRequested.connect(self._show_service_context_menu); self.table.setItemDelegate(ServiceTableDelegate(self.table)); self.table.setStyleSheet("QTableWidget{background:transparent;border:none;gridline-color:transparent;color:#E7EAF0;outline:none;} QTableWidget::item{background:transparent;border:none;color:#E7EAF0;padding:0;} QTableWidget::item:selected,QTableWidget::item:focus{background:transparent;border:none;outline:none;} QPushButton{background:#171b22;border:1px solid #303846;color:#E7EAF0;border-radius:8px;padding:7px 12px;} QPushButton:hover{background:#222936;} QPushButton:checked{background:#303846;border-color:#465166;color:#FFFFFF;} QPushButton:pressed{background:#303846;}"); layout.addWidget(self.table)
     def _toggle_status_filter(self,s,c):
         if c:self._status_filters.add(s)
         else:self._status_filters.discard(s)
@@ -227,6 +227,14 @@ class ServicesPage(QWidget):
                 return link.id
         finally:session.close()
         return None
+    def _set_interaction_blocked(self,blocked):
+        self._interaction_blocked=bool(blocked)
+        if blocked:
+            self._render_after_interaction=True
+        elif self._render_after_interaction:
+            self._render_after_interaction=False
+            if self.live_scan:
+                self._render_live_rows()
     def _show_service_context_menu(self,position):
         index=self.table.indexAt(position)
         if not index.isValid() or not (0<=index.row()<len(self.row_details)):return
@@ -234,7 +242,12 @@ class ServicesPage(QWidget):
         menu=QMenu(self.table); menu.setStyleSheet("QMenu{background:#171b22;border:1px solid #303846;border-radius:8px;padding:4px;} QMenu::item{color:#E7EAF0;background:transparent;padding:8px 18px;margin:0;border-radius:5px;} QMenu::item:selected{color:#E7EAF0;background:#303846;}")
         details_action=menu.addAction("Plus de détails"); status_menu=menu.addMenu("Statut de migration"); actions={}
         for s in MIGRATION_STATUSES:actions[status_menu.addAction(s)]=s
-        destination_action=menu.addAction("Définir l'adresse de destination…"); chosen=menu.exec(self.table.viewport().mapToGlobal(position))
+        destination_action=menu.addAction("Définir l'adresse de destination…")
+        self._set_interaction_blocked(True)
+        try:
+            chosen=menu.exec(self.table.viewport().mapToGlobal(position))
+        finally:
+            self._set_interaction_blocked(False)
         if chosen==details_action:self._open_details_for_row(row,index.column())
         elif chosen==destination_action:self._set_destination_for_row(row)
         elif chosen in actions:self._set_status_for_row(row,actions[chosen])
@@ -252,6 +265,7 @@ class ServicesPage(QWidget):
         aid=self._resolve_account_service_id(self.row_details[row])
         if not aid:
             QMessageBox.information(self,"Migration","Ce service n'est pas encore disponible en base de données."); return
+        self._set_interaction_blocked(True)
         session=get_session()
         try:
             link=session.get(AccountService,aid)
@@ -259,13 +273,18 @@ class ServicesPage(QWidget):
             link.status=status; link.migrated_at=datetime.now(timezone.utc) if status=="Migré" else None; session.commit()
         except Exception as e:
             session.rollback(); QMessageBox.critical(self,"Erreur","Impossible de modifier le statut.\n\n"+str(e)); return
-        finally:session.close()
+        finally:
+            session.close(); self._set_interaction_blocked(False)
         self._update_row_status(row,status)
     def _set_destination_for_row(self,row):
         if not (0<=row<len(self.row_details)):return
         d=self.row_details[row]; aid=self._resolve_account_service_id(d)
         if not aid:return
-        value,ok=QInputDialog.getText(self,"Adresse de destination","Nouvelle adresse :",text=d.get("destination") or "")
+        self._set_interaction_blocked(True)
+        try:
+            value,ok=QInputDialog.getText(self,"Adresse de destination","Nouvelle adresse :",text=d.get("destination") or "")
+        finally:
+            self._set_interaction_blocked(False)
         if not ok:return
         session=get_session()
         try:
@@ -292,8 +311,13 @@ class ServicesPage(QWidget):
                 if not reliability:
                     details["reliability"]={"official_domain":"domain" in signals,"known_sender":"sender" in signals,"authentication_available":False,"spf":None,"dkim":None,"dmarc":None}
         finally:session.close()
-        dialog=ServiceDetailsDialog(details,self)
-        if dialog.exec()==QDialog.Accepted:self.refresh()
+        self._set_interaction_blocked(True)
+        try:
+            dialog=ServiceDetailsDialog(details,self)
+            accepted=dialog.exec()==QDialog.Accepted
+        finally:
+            self._set_interaction_blocked(False)
+        if accepted:self.refresh()
     def set_active_account(self,account_id):
         if self.live_scan:return
         self.active_account_id=account_id; self.live_rows.clear(); self.live_account_ids.clear(); self.live_account_emails.clear(); self.refresh()
@@ -317,7 +341,11 @@ class ServicesPage(QWidget):
         self._live_render_pending=True; QTimer.singleShot(120,self._render_live_rows_deferred)
     def _render_live_rows_deferred(self):
         self._live_render_pending=False
-        if self.live_scan:self._render_live_rows()
+        if not self.live_scan:return
+        if self._interaction_blocked:
+            self._render_after_interaction=True
+            return
+        self._render_live_rows()
     def finish_live_scan(self,mode):
         if not self.live_scan:return
         if mode==-1:self.keep_live_results_after_cancel();return
@@ -325,6 +353,9 @@ class ServicesPage(QWidget):
     def keep_live_results_after_cancel(self):
         self.live_scan=False; self._render_live_rows(); self.live_account_ids.clear(); self.live_account_emails.clear()
     def _render_live_rows(self):
+        if self._interaction_blocked:
+            self._render_after_interaction=True
+            return
         rows=[]; details=[]
         for item in sorted(self.live_rows.values(),key=lambda x:(-x["score"],x["name"].lower(),x["account_email"].lower())):
             rows.append((item.get("account_email",""),item["name"],item["category"],f'{item["score"]:.0f} %',str(item["count"]),item["status"])); details.append(item)
@@ -332,6 +363,9 @@ class ServicesPage(QWidget):
     def _set_rows(self,rows,details=None):
         self._all_rows=list(rows); self._all_details=list(details or []); self._refresh_categories(); self._filter_services(self.search_input.text())
     def refresh(self):
+        if self._interaction_blocked:
+            self._render_after_interaction=True
+            return
         session=get_session(); rows=[]; details=[]
         try:
             for account in get_accounts(session):
@@ -341,9 +375,15 @@ class ServicesPage(QWidget):
                     details.append({"account_id":account.id,"account_service_id":link.id,"account_email":account.email,"name":service.name,"category":service.category,"subcategory":service.subcategory,"score":link.confidence_score,"count":link.trace_count,"status":link.status or "À vérifier","priority":link.priority,"destination":link.destination_email,"notes":link.notes,"first_detected_at":link.first_detected_at,"last_detected_at":link.last_detected_at,"migrated_at":link.migrated_at,"signals":[],"reliability":{}})
                     rows.append((account.email,service.name,service.category,f"{link.confidence_score:.0f} %",str(link.trace_count),link.status or "À vérifier"))
         finally:session.close()
-        if not self.live_scan:self._set_rows(rows,details)
+        if not self.live_scan and not self._interaction_blocked:self._set_rows(rows,details)
     def cleanup_scanned_services(self):
+        answer=QMessageBox.question(self,"Confirmer le nettoyage","Voulez-vous vraiment supprimer tous les services et traces détectés ?\n\nCette action ne peut pas être annulée.",QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
+        if answer!=QMessageBox.Yes:return
+        self._set_interaction_blocked(True)
         session=get_session()
         try:session.execute(delete(ScanTrace)); session.execute(delete(AccountService)); session.commit()
-        finally:session.close()
+        except Exception as e:
+            session.rollback(); QMessageBox.critical(self,"Nettoyage","Impossible de nettoyer les données.\n\n"+str(e)); return
+        finally:
+            session.close(); self._set_interaction_blocked(False)
         self.live_rows.clear(); self.live_account_ids.clear(); self.live_account_emails.clear(); self.live_scan=False; self.refresh()
