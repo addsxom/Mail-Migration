@@ -1,5 +1,3 @@
-"""Service detection rules used by the Gmail scanner."""
-
 import re
 from email.utils import parseaddr
 
@@ -7,9 +5,6 @@ from app.scanner.catalog_index import CatalogIndex
 from app.scanner.scorer import calculate_score
 
 
-# Domains that should never become "unknown services". These are common
-# personal mailbox providers or infrastructure domains and do not represent
-# an external service the user needs to migrate.
 IGNORED_UNKNOWN_DOMAINS = {
     "gmail.com", "googlemail.com", "google.com", "accounts.google.com",
     "googleusercontent.com", "yahoo.com", "yahoo.fr", "hotmail.com",
@@ -20,11 +15,12 @@ IGNORED_UNKNOWN_DOMAINS = {
 
 
 class Detection:
-    def __init__(self, service, score, signals, reliability=None):
+    def __init__(self, service, score, signals, reliability=None, sender_email=None):
         self.service = service
         self.score = score
         self.signals = signals
         self.reliability = reliability or {}
+        self.sender_email = sender_email
 
 
 def _normalise(value):
@@ -47,9 +43,7 @@ def _sender_display_name(sender):
 
 def _domain_matches(message_domain, configured_domain):
     domain = _normalise(configured_domain)
-    return bool(message_domain) and (
-        message_domain == domain or message_domain.endswith("." + domain)
-    )
+    return bool(message_domain) and (message_domain == domain or message_domain.endswith("." + domain))
 
 
 def _contains_term(text, term):
@@ -71,20 +65,10 @@ def _sender_matches(sender, definition):
 
 
 def _known_domain(domain, definitions):
-    return any(
-        _domain_matches(domain, configured)
-        for definition in definitions
-        for configured in definition.get("domains", [])
-    )
+    return any(_domain_matches(domain, configured) for definition in definitions for configured in definition.get("domains", []))
 
 
 def _readable_unknown_service_name(sender, domain):
-    """Build a human-readable service name for an uncatalogued sender.
-
-    Prefer the sender's display name (e.g. "NBA 2K") instead of exposing a
-    technical label such as "Domaine non catalogué — nba2k.com". If Gmail
-    provides no display name, derive a conservative name from the domain.
-    """
     display_name = _sender_display_name(sender)
     if display_name:
         label = display_name
@@ -95,29 +79,20 @@ def _readable_unknown_service_name(sender, domain):
         label = label.strip()
         if label:
             label = label[:1].upper() + label[1:]
-
     label = re.sub(r"[^\w .&+\-]", "", label, flags=re.UNICODE).strip()
     return (label[:120] or "Service inconnu").strip()
 
 
 def _unknown_detection(sender, domain, subject, definitions):
-    """Return a low-confidence candidate for an unlisted service domain."""
-    if not domain or domain in IGNORED_UNKNOWN_DOMAINS:
+    if not domain or domain in IGNORED_UNKNOWN_DOMAINS or _known_domain(domain, definitions):
         return None
-    if _known_domain(domain, definitions):
-        return None
-
     display_name = _sender_display_name(sender)
     label = _readable_unknown_service_name(sender, domain)
-
     score = 30.0
     if display_name:
         score += 5.0
     if subject and display_name and _contains_term(subject, display_name):
         score += 5.0
-
-    # The service column contains the readable name directly. We deliberately
-    # do not prefix it with "Inconnu —" or "Domaine non catalogué —".
     definition = {
         "name": label,
         "category": "Inconnu",
@@ -125,10 +100,7 @@ def _unknown_detection(sender, domain, subject, definitions):
         "domains": [domain],
         "senders": [_sender_address(sender)] if _sender_address(sender) else [],
         "keywords": [display_name] if display_name else [],
-        "description": (
-            "Candidat détecté automatiquement à partir d'un domaine absent "
-            "du catalogue. Vérification manuelle recommandée."
-        ),
+        "description": "Candidat détecté automatiquement à partir d'un domaine absent du catalogue. Vérification manuelle recommandée.",
         "unknown": True,
     }
     reliability = {
@@ -139,17 +111,17 @@ def _unknown_detection(sender, domain, subject, definitions):
         "dkim": None,
         "dmarc": None,
     }
-    return Detection(definition, min(45.0, score), ["unknown_domain"], reliability)
+    return Detection(definition, min(45.0, score), ["unknown_domain"], reliability, _sender_address(sender))
 
 
 def detect_message(message, service_definitions=None, catalog_index=None):
-    """Detect catalog services and cautious candidates outside the catalog."""
     headers = {
         h.get("name", "").casefold(): h.get("value", "")
         for h in message.get("payload", {}).get("headers", [])
         if h.get("name")
     }
     sender = headers.get("from", "") or headers.get("reply-to", "")
+    sender_email = _sender_address(sender)
     subject = headers.get("subject", "")
     domain = _domain_from_sender(sender)
     auth_results = _normalise(headers.get("authentication-results", ""))
@@ -188,8 +160,7 @@ def detect_message(message, service_definitions=None, catalog_index=None):
         checks = [reliability[key] for key in ("spf", "dkim", "dmarc") if reliability[key] is not None]
         reliability["authentication_available"] = bool(checks)
         reliability["authentication_passed"] = bool(checks) and all(checks)
-
-        results.append(Detection(definition, calculate_score(signals), signals, reliability=reliability))
+        results.append(Detection(definition, calculate_score(signals), signals, reliability=reliability, sender_email=sender_email))
 
     unknown = _unknown_detection(sender, domain, subject, definitions)
     if unknown:
