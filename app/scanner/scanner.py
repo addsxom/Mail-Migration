@@ -26,16 +26,29 @@ class ScanCancelled(Exception):
 UNKNOWN_MIN_MESSAGES = 2
 PERSIST_EVERY_MESSAGES = 50
 
-# The scanner deliberately does not call the Qt/UI layer for every message.
-# The UI receives throttled progress updates from ScanWorker instead.
-
 SERVICE_WEBSITES = {
-    "streamlabs": "streamlabs.com", "medal": "medal.tv", "supercell": "supercell.com",
-    "supercell-store": "store.supercell.com", "brawl-stars": "brawlstars.com", "guns-lol": "guns.lol",
-    "sony": "sony.com", "hide-me": "hide.me", "intelligence-x": "intelx.io", "sellhub": "sellhub.com",
-    "bitwarden": "bitwarden.com", "shein": "shein.com", "lego": "lego.com", "just-eat": "just-eat.ch",
-    "instant-gaming": "instant-gaming.com", "ebookers": "ebookers.com", "hellcase": "hellcase.com",
-    "tinder": "tinder.com", "mongodb": "mongodb.com", "eneba": "eneba.com", "chess-com": "chess.com", "bolt": "bolt.eu",
+    "streamlabs": "streamlabs.com",
+    "medal": "medal.tv",
+    "supercell": "supercell.com",
+    "supercell-store": "store.supercell.com",
+    "brawl-stars": "brawlstars.com",
+    "guns-lol": "guns.lol",
+    "sony": "sony.com",
+    "hide-me": "hide.me",
+    "intelligence-x": "intelx.io",
+    "sellhub": "sellhub.com",
+    "bitwarden": "bitwarden.com",
+    "shein": "shein.com",
+    "lego": "lego.com",
+    "just-eat": "just-eat.ch",
+    "instant-gaming": "instant-gaming.com",
+    "ebookers": "ebookers.com",
+    "hellcase": "hellcase.com",
+    "tinder": "tinder.com",
+    "mongodb": "mongodb.com",
+    "eneba": "eneba.com",
+    "chess-com": "chess.com",
+    "bolt": "bolt.eu",
 }
 
 
@@ -58,7 +71,9 @@ def _service_website(service_name, sender_email):
     if key in SERVICE_WEBSITES:
         return SERVICE_WEBSITES[key]
     domain = (sender_email or "").rsplit("@", 1)[-1].strip().lower()
-    return domain if domain and "." in domain else None
+    if domain and "." in domain:
+        return domain
+    return None
 
 
 def _download_logo(url, destination):
@@ -72,7 +87,7 @@ def _download_logo(url, destination):
         destination = destination.with_suffix(".svg")
     elif "png" in content_type or data.startswith(b"\x89PNG"):
         destination = destination.with_suffix(".png")
-    elif "webp" in content_type or (data.startswith(b"RIFF") and b"WEBP" in data[:16]):
+    elif "webp" in content_type or data.startswith(b"RIFF") and b"WEBP" in data[:16]:
         destination = destination.with_suffix(".webp")
     else:
         destination = destination.with_suffix(".jpg")
@@ -100,38 +115,19 @@ def _download_service_logo(service_name, sender_email, assets, key):
     return False
 
 
-def _is_placeholder_avatar(path):
-    if path.suffix.lower() != ".svg":
-        return False
-    try:
-        content = path.read_text(encoding="utf-8", errors="ignore").lower()
-    except OSError:
-        return False
-    return '<circle cx="32" cy="32" r="30" fill="#303846"' in content and '<text x="32" y="35"' in content
-
-
-def _remove_placeholder_avatar(assets, key):
-    path = assets / f"{key}.svg"
-    if _is_placeholder_avatar(path):
-        try:
-            path.unlink()
-        except OSError:
-            pass
-
-
 def _write_service_avatar(service_name, sender_email, account_email):
     assets = Path(__file__).resolve().parents[2] / "assets" / "service_logos"
     assets.mkdir(parents=True, exist_ok=True)
     key = _service_key(service_name)
     existing = [assets / f"{key}{suffix}" for suffix in (".png", ".jpg", ".jpeg", ".svg", ".webp")]
-    if any(path.exists() and path.stat().st_size > 32 and not _is_placeholder_avatar(path) for path in existing):
+    if any(path.exists() and path.stat().st_size > 32 for path in existing):
         return
-    _remove_placeholder_avatar(assets, key)
     if sender_email:
         try:
             photo = get_profile_photo(sender_email, account_email)
-            if photo and Path(photo).exists() and Path(photo).stat().st_size > 32:
-                shutil.copyfile(photo, assets / f"{key}.jpg")
+            if photo:
+                destination = assets / f"{key}.jpg"
+                shutil.copyfile(photo, destination)
                 return
         except (OSError, ValueError):
             pass
@@ -230,8 +226,6 @@ def scan_account(session, account_id, progress=None, cancel_check=None, query=""
     estimated_total = 0
     last_persist = 0
     catalog_index = CatalogIndex(CATALOG)
-    # Only these counters are sent to the worker. No Qt objects are touched here.
-    last_progress_emit = 0
     try:
         estimated_total = get_message_count(account.email, query=query)
         if progress:
@@ -254,20 +248,16 @@ def scan_account(session, account_id, progress=None, cancel_check=None, query=""
                 else:
                     item = detections.setdefault(key, _new_detection_bucket(detection))
                     _add_detection(item, detection, message_id)
-                # Detection callbacks are intentionally batched by the UI worker.
-                # This callback remains available for compatibility with existing callers.
                 if detection_callback:
                     detection_callback(_callback_data(account, item))
             if messages_scanned - last_persist >= PERSIST_EVERY_MESSAGES:
                 _persist_partial(session, account, detections, detection_callback)
                 last_persist = messages_scanned
-            if progress and (messages_scanned - last_progress_emit >= 25 or messages_scanned == estimated_total):
+            if progress:
                 progress(messages_scanned, estimated_total, len(detections))
-                last_progress_emit = messages_scanned
         _persist_partial(session, account, detections, detection_callback)
-        finished_at = datetime.now(timezone.utc)
-        account.last_scan_at = finished_at
-        history.finished_at = finished_at
+        account.last_scan_at = datetime.now(timezone.utc)
+        history.finished_at = datetime.now(timezone.utc)
         history.status = "completed"
         history.messages_scanned = messages_scanned
         history.services_detected = len(detections)
