@@ -7,14 +7,41 @@ _original_accounts_init = AccountsPage.__init__
 _original_start_scan = AccountsPage.start_scan
 
 CARD_STYLE = """
-QFrame#scanLiveCard { background: #171B22; border: 1px solid #303846; border-radius: 16px; }
-QLabel#scanLiveTitle { color: #F2F4F7; font-size: 19px; font-weight: 700; }
-QLabel#scanLiveSubtitle { color: #929BAA; font-size: 13px; }
-QLabel#scanLiveBadge { color: #8ED6A5; background: #1A2A21; border: 1px solid #2D5940; border-radius: 10px; padding: 7px 11px; font-size: 11px; font-weight: 700; }
-QLabel#scanStat { color: #E6E9EF; background: #12161C; border: 1px solid #292F39; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 700; }
-QLabel#scanLiveDetail { color: #8F98A8; font-size: 12px; }
-QProgressBar#scanLiveProgress { background: #0F1217; border: none; border-radius: 4px; }
-QProgressBar#scanLiveProgress::chunk { background: #71819A; border-radius: 4px; }
+QFrame#scanLiveCard {
+    background: #171C24;
+    border: 1px solid #252D39;
+    border-radius: 28px;
+}
+QLabel#scanLiveTitle { color: #F4F7FB; font-size: 20px; font-weight: 700; }
+QLabel#scanLiveSubtitle { color: #8993A3; font-size: 12px; }
+QLabel#scanLiveBadge {
+    color: #A8F5C0;
+    background: #182820;
+    border: 1px solid #31543F;
+    border-radius: 16px;
+    padding: 8px 13px;
+    font-size: 10px;
+    font-weight: 800;
+}
+QLabel#scanStat {
+    color: #EEF2F7;
+    background: #121720;
+    border: 1px solid #222A35;
+    border-radius: 18px;
+    padding: 12px 12px;
+    font-size: 12px;
+    font-weight: 700;
+}
+QLabel#scanLiveDetail { color: #8E98A8; font-size: 11px; }
+QProgressBar#scanLiveProgress {
+    background: #0E131A;
+    border: 1px solid #202833;
+    border-radius: 4px;
+}
+QProgressBar#scanLiveProgress::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2388FF, stop:1 #35D6D1);
+    border-radius: 4px;
+}
 """
 
 
@@ -25,14 +52,16 @@ def _build_scan_interface(self):
     panel.setObjectName("scanLiveCard")
     panel.setStyleSheet(CARD_STYLE)
     root = QVBoxLayout(panel)
-    root.setContentsMargins(20, 18, 20, 18)
-    root.setSpacing(12)
+    root.setContentsMargins(24, 21, 24, 21)
+    root.setSpacing(15)
+
     top = QHBoxLayout()
+    top.setSpacing(16)
     title_box = QVBoxLayout()
-    title_box.setSpacing(2)
-    self.scan_live_title = QLabel("Prêt à analyser")
+    title_box.setSpacing(3)
+    self.scan_live_title = QLabel("Analyse du compte 0 / 0")
     self.scan_live_title.setObjectName("scanLiveTitle")
-    self.scan_live_subtitle = QLabel("Sélectionnez un ou plusieurs comptes pour commencer")
+    self.scan_live_subtitle = QLabel("Prêt à analyser")
     self.scan_live_subtitle.setObjectName("scanLiveSubtitle")
     title_box.addWidget(self.scan_live_title)
     title_box.addWidget(self.scan_live_subtitle)
@@ -41,25 +70,29 @@ def _build_scan_interface(self):
     self.scan_live_badge.setObjectName("scanLiveBadge")
     top.addWidget(self.scan_live_badge, 0)
     root.addLayout(top)
+
     stats = QHBoxLayout()
-    stats.setSpacing(10)
-    self.scan_account_stat = QLabel("—\nCOMPTES")
-    self.scan_mail_stat = QLabel("—\nMAILS TRAITÉS")
-    self.scan_service_stat = QLabel("—\nSERVICES")
-    self.scan_eta_stat = QLabel("—\nTEMPS RESTANT")
+    stats.setSpacing(12)
+    self.scan_account_stat = QLabel("—\nCOMPTE ACTUEL")
+    self.scan_mail_stat = QLabel("0\nMAILS TRAITÉS")
+    self.scan_service_stat = QLabel("0\nSERVICES DÉTECTÉS")
+    self.scan_eta_stat = QLabel("Calcul…\nTEMPS RESTANT")
     for widget in (self.scan_account_stat, self.scan_mail_stat, self.scan_service_stat, self.scan_eta_stat):
         widget.setObjectName("scanStat")
-        widget.setMinimumHeight(54)
+        widget.setMinimumHeight(62)
+        widget.setAlignment(widget.alignment())
         stats.addWidget(widget)
     root.addLayout(stats)
+
     self.scan_live_progress = QProgressBar()
     self.scan_live_progress.setRange(0, 100)
     self.scan_live_progress.setValue(0)
     self.scan_live_progress.setTextVisible(False)
-    self.scan_live_progress.setFixedHeight(8)
+    self.scan_live_progress.setFixedHeight(7)
     self.scan_live_progress.setObjectName("scanLiveProgress")
     root.addWidget(self.scan_live_progress)
-    self.scan_live_detail = QLabel("Aucun scan en cours.")
+
+    self.scan_live_detail = QLabel("Progression du compte : 0 %")
     self.scan_live_detail.setObjectName("scanLiveDetail")
     root.addWidget(self.scan_live_detail)
     parent_layout = self.list.parentWidget().layout()
@@ -78,7 +111,7 @@ def _accounts_init(self, on_change=None):
     self._smooth_timer.start()
     self._scan_email_cache = {}
     self._scan_position_cache = {}
-    self._scan_last_status = 0.0
+    self._scan_selected_total = 0
     _build_scan_interface(self)
 
 
@@ -100,15 +133,17 @@ def _start_scan(self):
     if ids:
         self._scan_email_cache = {}
         self._scan_position_cache = {}
-        for index in range(self.list.count()):
-            item = self.list.item(index)
-            account_id = item.data(256)
-            if account_id is not None:
-                text = item.text()
-                if " - " in text:
-                    email = text.split(" - ", 1)[1].split("  —  ", 1)[0].strip()
-                    self._scan_email_cache[account_id] = email
-                self._scan_position_cache[account_id] = index + 1
+        self._scan_selected_total = len(ids)
+        for position, account_id in enumerate(ids, 1):
+            self._scan_position_cache[account_id] = position
+            for index in range(self.list.count()):
+                item = self.list.item(index)
+                if item.data(256) == account_id:
+                    text = item.text()
+                    if " - " in text:
+                        email = text.split(" - ", 1)[1].split("  —  ", 1)[0].strip()
+                        self._scan_email_cache[account_id] = email
+                    break
     self.scan_live_card.show()
     return _original_start_scan(self)
 
@@ -117,12 +152,14 @@ def _scan_account_started(self, account_id, position, total_accounts):
     self.scan_current_account = account_id
     self.scan_account_started_at = time.monotonic()
     self.scan_current_total = 0
-    self._smooth_target = 0
-    self.scan_live_title.setText(f"Analyse du compte {position} / {total_accounts}")
+    self._smooth_target = max(0, int(round(((position - 1) / max(1, self._scan_selected_total)) * 100)))
+    display_total = self._scan_selected_total or len(getattr(self, "scan_account_ids", [])) or total_accounts
+    display_position = self._scan_position_cache.get(account_id, position)
+    self.scan_live_title.setText(f"Analyse du compte {display_position} / {display_total}")
     self.scan_live_subtitle.setText(self._scan_email_cache.get(account_id, "Compte Google"))
-    self.scan_live_badge.setText("● ANALYSE EN COURS")
-    self.scan_live_detail.setText("Connexion à Gmail et préparation des messages…")
-    self.scan_account_stat.setText(f"{position} / {total_accounts}\nCOMPTE ACTUEL")
+    self.scan_live_badge.setText("ANALYSE EN COURS  ●")
+    self.scan_live_detail.setText("Progression du compte : 0 %")
+    self.scan_account_stat.setText(f"{display_position} / {display_total}\nCOMPTE ACTUEL")
     self.scan_mail_stat.setText("0\nMAILS TRAITÉS")
     self.scan_service_stat.setText("0\nSERVICES DÉTECTÉS")
     self.scan_eta_stat.setText("Calcul…\nTEMPS RESTANT")
@@ -133,8 +170,9 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     self.scan_services[account_id] = services
     self.scan_current_total = total
     current_progress = (mails / total * 100) if total > 0 else 0
-    completed_base = min(completed_accounts, self.scan_total_accounts)
-    overall = ((completed_base + current_progress / 100) / max(1, self.scan_total_accounts)) * 100
+    selected_total = self._scan_selected_total or self.scan_total_accounts or 1
+    completed_base = min(completed_accounts, selected_total)
+    overall = ((completed_base + current_progress / 100) / selected_total) * 100
     self._smooth_target = max(0, min(100, int(round(overall))))
     elapsed = 0.0
     if self.scan_account_started_at is not None:
@@ -144,16 +182,17 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
         rate = mails / elapsed
         eta = (total - mails) / rate if rate > 0 else None
     email = self._scan_email_cache.get(account_id, "Compte Google")
-    position = self._scan_position_cache.get(account_id, self.scan_completed + 1)
+    position = self._scan_position_cache.get(account_id, completed_accounts + 1)
+    display_total = self._scan_selected_total or len(self.scan_account_ids) or self.scan_total_accounts
     account_percent = int(round(current_progress)) if total else 0
-    self.scan_live_title.setText(f"Analyse du compte {position} / {self.scan_total_accounts}")
+    self.scan_live_title.setText(f"Analyse du compte {position} / {display_total}")
     self.scan_live_subtitle.setText(email)
-    self.scan_live_badge.setText("● ANALYSE EN COURS")
-    self.scan_account_stat.setText(f"{position} / {self.scan_total_accounts}\nCOMPTE ACTUEL")
+    self.scan_live_badge.setText("ANALYSE EN COURS  ●")
+    self.scan_account_stat.setText(f"{position} / {display_total}\nCOMPTE ACTUEL")
     self.scan_mail_stat.setText(f"{mails:,}\nMAILS TRAITÉS")
     self.scan_service_stat.setText(f"{services}\nSERVICES DÉTECTÉS")
     self.scan_eta_stat.setText(f"{_format_eta_short(eta)}\nTEMPS RESTANT")
-    self.scan_live_detail.setText(f"Progression du compte : {account_percent} %   •   {mails:,} mails traités")
+    self.scan_live_detail.setText(f"Progression du compte : {account_percent} %")
 
 
 def _format_eta_short(seconds):
@@ -172,10 +211,10 @@ def _format_eta_short(seconds):
 def _start_status_blink(self, text, success):
     if getattr(self, "status_timer", None):
         self.status_timer.stop()
-    self.scan_live_title.setText("✓ Scan terminé" if success else "✕ Scan annulé")
-    self.scan_live_badge.setText("● TERMINÉ" if success else "● ANNULÉ")
+    self.scan_live_title.setText("Scan terminé" if success else "Scan annulé")
+    self.scan_live_badge.setText("SCAN TERMINÉ  ✓" if success else "SCAN ANNULÉ  ✕")
     self.scan_live_subtitle.setText(text)
-    self.scan_live_detail.setText("Les résultats sont disponibles dans les services détectés.")
+    self.scan_live_detail.setText("Progression du compte : 100 %" if success else "Scan interrompu")
     self._smooth_target = 100 if success else self._smooth_target
     self.status_timer = QTimer(self)
     visible = [True]
