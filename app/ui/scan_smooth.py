@@ -1,5 +1,6 @@
 import time
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QProgressBar
 from app.ui.accounts import AccountsPage
 
@@ -28,10 +29,13 @@ QLabel#scanStat {
     background: #121720;
     border: 1px solid #222A35;
     border-radius: 18px;
-    padding: 12px 12px;
+    padding: 10px 12px;
     font-size: 12px;
     font-weight: 700;
 }
+QLabel#scanStatIcon { color: #69D8FF; font-size: 20px; font-weight: 700; }
+QLabel#scanStatValue { color: #EEF2F7; font-size: 15px; font-weight: 800; }
+QLabel#scanStatLabel { color: #8E98A8; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
 QLabel#scanLiveDetail { color: #8E98A8; font-size: 11px; }
 QProgressBar#scanLiveProgress {
     background: #0E131A;
@@ -43,6 +47,32 @@ QProgressBar#scanLiveProgress::chunk {
     border-radius: 4px;
 }
 """
+
+
+def _make_stat_card(icon, value, label):
+    card = QFrame()
+    card.setObjectName("scanStat")
+    layout = QHBoxLayout(card)
+    layout.setContentsMargins(13, 10, 13, 10)
+    layout.setSpacing(10)
+    icon_label = QLabel(icon)
+    icon_label.setObjectName("scanStatIcon")
+    icon_label.setFixedWidth(27)
+    icon_label.setAlignment(Qt.AlignCenter)
+    text = QVBoxLayout()
+    text.setSpacing(2)
+    value_label = QLabel(value)
+    value_label.setObjectName("scanStatValue")
+    label_label = QLabel(label)
+    label_label.setObjectName("scanStatLabel")
+    text.addWidget(value_label)
+    text.addWidget(label_label)
+    layout.addWidget(icon_label)
+    layout.addLayout(text, 1)
+    card._icon_label = icon_label
+    card._value_label = value_label
+    card._label_label = label_label
+    return card
 
 
 def _build_scan_interface(self):
@@ -73,15 +103,13 @@ def _build_scan_interface(self):
 
     stats = QHBoxLayout()
     stats.setSpacing(12)
-    self.scan_account_stat = QLabel("—\nCOMPTE ACTUEL")
-    self.scan_mail_stat = QLabel("0\nMAILS TRAITÉS")
-    self.scan_service_stat = QLabel("0\nSERVICES DÉTECTÉS")
-    self.scan_eta_stat = QLabel("Calcul…\nTEMPS RESTANT")
-    for widget in (self.scan_account_stat, self.scan_mail_stat, self.scan_service_stat, self.scan_eta_stat):
-        widget.setObjectName("scanStat")
-        widget.setMinimumHeight(62)
-        widget.setAlignment(widget.alignment())
-        stats.addWidget(widget)
+    self.scan_account_card = _make_stat_card("👤", "—", "COMPTE ACTUEL")
+    self.scan_mail_card = _make_stat_card("✉", "0", "MAILS TRAITÉS")
+    self.scan_service_card = _make_stat_card("▦", "0", "SERVICES DÉTECTÉS")
+    self.scan_eta_card = _make_stat_card("⏱", "Calcul…", "TEMPS RESTANT")
+    for card in (self.scan_account_card, self.scan_mail_card, self.scan_service_card, self.scan_eta_card):
+        card.setMinimumHeight(66)
+        stats.addWidget(card)
     root.addLayout(stats)
 
     self.scan_live_progress = QProgressBar()
@@ -100,6 +128,10 @@ def _build_scan_interface(self):
     parent_layout.insertWidget(list_index, panel)
     self.scan_live_card = panel
     panel.hide()
+
+
+def _set_stat(card, value):
+    card._value_label.setText(str(value))
 
 
 def _accounts_init(self, on_change=None):
@@ -159,10 +191,10 @@ def _scan_account_started(self, account_id, position, total_accounts):
     self.scan_live_subtitle.setText(self._scan_email_cache.get(account_id, "Compte Google"))
     self.scan_live_badge.setText("ANALYSE EN COURS  ●")
     self.scan_live_detail.setText("Progression du compte : 0 %")
-    self.scan_account_stat.setText(f"{display_position} / {display_total}\nCOMPTE ACTUEL")
-    self.scan_mail_stat.setText("0\nMAILS TRAITÉS")
-    self.scan_service_stat.setText("0\nSERVICES DÉTECTÉS")
-    self.scan_eta_stat.setText("Calcul…\nTEMPS RESTANT")
+    _set_stat(self.scan_account_card, f"{display_position} / {display_total}")
+    _set_stat(self.scan_mail_card, "0")
+    _set_stat(self.scan_service_card, "0")
+    _set_stat(self.scan_eta_card, "Calcul…")
 
 
 def _scan_progress(self, account_id, mails, total, services, completed_accounts):
@@ -188,10 +220,10 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     self.scan_live_title.setText(f"Analyse du compte {position} / {display_total}")
     self.scan_live_subtitle.setText(email)
     self.scan_live_badge.setText("ANALYSE EN COURS  ●")
-    self.scan_account_stat.setText(f"{position} / {display_total}\nCOMPTE ACTUEL")
-    self.scan_mail_stat.setText(f"{mails:,}\nMAILS TRAITÉS")
-    self.scan_service_stat.setText(f"{services}\nSERVICES DÉTECTÉS")
-    self.scan_eta_stat.setText(f"{_format_eta_short(eta)}\nTEMPS RESTANT")
+    _set_stat(self.scan_account_card, f"{position} / {display_total}")
+    _set_stat(self.scan_mail_card, f"{mails:,}")
+    _set_stat(self.scan_service_card, services)
+    _set_stat(self.scan_eta_card, _format_eta_short(eta))
     self.scan_live_detail.setText(f"Progression du compte : {account_percent} %")
 
 
