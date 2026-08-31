@@ -87,7 +87,3 @@ Mail-Migration/
 ## Technologies
 
 Python · PySide6 · Gmail API · SQLAlchemy · SQLite · ReportLab
-
-## État
-
-**Comptes Google → Scan → Services → Vérification → Migration → Sauvegarde → Exportation**
