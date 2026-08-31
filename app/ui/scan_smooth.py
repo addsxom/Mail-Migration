@@ -6,67 +6,27 @@ from app.ui.accounts import AccountsPage
 _original_accounts_init = AccountsPage.__init__
 _original_start_scan = AccountsPage.start_scan
 
-
 CARD_STYLE = """
-QFrame#scanLiveCard {
-    background: #171B22;
-    border: 1px solid #303846;
-    border-radius: 16px;
-}
-QLabel#scanLiveTitle {
-    color: #F2F4F7;
-    font-size: 19px;
-    font-weight: 700;
-}
-QLabel#scanLiveSubtitle {
-    color: #929BAA;
-    font-size: 13px;
-}
-QLabel#scanLiveBadge {
-    color: #8ED6A5;
-    background: #1A2A21;
-    border: 1px solid #2D5940;
-    border-radius: 10px;
-    padding: 7px 11px;
-    font-size: 11px;
-    font-weight: 700;
-}
-QLabel#scanStat {
-    color: #E6E9EF;
-    background: #12161C;
-    border: 1px solid #292F39;
-    border-radius: 10px;
-    padding: 8px 10px;
-    font-size: 13px;
-    font-weight: 700;
-}
-QLabel#scanLiveDetail {
-    color: #8F98A8;
-    font-size: 12px;
-}
-QProgressBar#scanLiveProgress {
-    background: #0F1217;
-    border: none;
-    border-radius: 4px;
-}
-QProgressBar#scanLiveProgress::chunk {
-    background: #71819A;
-    border-radius: 4px;
-}
+QFrame#scanLiveCard { background: #171B22; border: 1px solid #303846; border-radius: 16px; }
+QLabel#scanLiveTitle { color: #F2F4F7; font-size: 19px; font-weight: 700; }
+QLabel#scanLiveSubtitle { color: #929BAA; font-size: 13px; }
+QLabel#scanLiveBadge { color: #8ED6A5; background: #1A2A21; border: 1px solid #2D5940; border-radius: 10px; padding: 7px 11px; font-size: 11px; font-weight: 700; }
+QLabel#scanStat { color: #E6E9EF; background: #12161C; border: 1px solid #292F39; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 700; }
+QLabel#scanLiveDetail { color: #8F98A8; font-size: 12px; }
+QProgressBar#scanLiveProgress { background: #0F1217; border: none; border-radius: 4px; }
+QProgressBar#scanLiveProgress::chunk { background: #71819A; border-radius: 4px; }
 """
 
 
 def _build_scan_interface(self):
     self.progress.hide()
     self.status.hide()
-
     panel = QFrame(self)
     panel.setObjectName("scanLiveCard")
     panel.setStyleSheet(CARD_STYLE)
     root = QVBoxLayout(panel)
     root.setContentsMargins(20, 18, 20, 18)
     root.setSpacing(12)
-
     top = QHBoxLayout()
     title_box = QVBoxLayout()
     title_box.setSpacing(2)
@@ -77,12 +37,10 @@ def _build_scan_interface(self):
     title_box.addWidget(self.scan_live_title)
     title_box.addWidget(self.scan_live_subtitle)
     top.addLayout(title_box, 1)
-
     self.scan_live_badge = QLabel("● EN ATTENTE")
     self.scan_live_badge.setObjectName("scanLiveBadge")
     top.addWidget(self.scan_live_badge, 0)
     root.addLayout(top)
-
     stats = QHBoxLayout()
     stats.setSpacing(10)
     self.scan_account_stat = QLabel("—\nCOMPTES")
@@ -94,7 +52,6 @@ def _build_scan_interface(self):
         widget.setMinimumHeight(54)
         stats.addWidget(widget)
     root.addLayout(stats)
-
     self.scan_live_progress = QProgressBar()
     self.scan_live_progress.setRange(0, 100)
     self.scan_live_progress.setValue(0)
@@ -102,11 +59,9 @@ def _build_scan_interface(self):
     self.scan_live_progress.setFixedHeight(8)
     self.scan_live_progress.setObjectName("scanLiveProgress")
     root.addWidget(self.scan_live_progress)
-
     self.scan_live_detail = QLabel("Aucun scan en cours.")
     self.scan_live_detail.setObjectName("scanLiveDetail")
     root.addWidget(self.scan_live_detail)
-
     parent_layout = self.list.parentWidget().layout()
     list_index = parent_layout.indexOf(self.list)
     parent_layout.insertWidget(list_index, panel)
@@ -177,12 +132,10 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     self.scan_messages[account_id] = mails
     self.scan_services[account_id] = services
     self.scan_current_total = total
-
     current_progress = (mails / total * 100) if total > 0 else 0
     completed_base = min(completed_accounts, self.scan_total_accounts)
     overall = ((completed_base + current_progress / 100) / max(1, self.scan_total_accounts)) * 100
     self._smooth_target = max(0, min(100, int(round(overall))))
-
     elapsed = 0.0
     if self.scan_account_started_at is not None:
         elapsed = max(0.0, time.monotonic() - self.scan_account_started_at)
@@ -190,11 +143,9 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     if mails > 0 and elapsed > 0 and total > mails:
         rate = mails / elapsed
         eta = (total - mails) / rate if rate > 0 else None
-
     email = self._scan_email_cache.get(account_id, "Compte Google")
     position = self._scan_position_cache.get(account_id, self.scan_completed + 1)
     account_percent = int(round(current_progress)) if total else 0
-
     self.scan_live_title.setText(f"Analyse du compte {position} / {self.scan_total_accounts}")
     self.scan_live_subtitle.setText(email)
     self.scan_live_badge.setText("● ANALYSE EN COURS")
@@ -202,7 +153,7 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     self.scan_mail_stat.setText(f"{mails:,}\nMAILS TRAITÉS")
     self.scan_service_stat.setText(f"{services}\nSERVICES DÉTECTÉS")
     self.scan_eta_stat.setText(f"{_format_eta_short(eta)}\nTEMPS RESTANT")
-    self.scan_live_detail.setText(f"Progression du compte : {account_percent} %   •   {mails:,} / {total:,} mails")
+    self.scan_live_detail.setText(f"Progression du compte : {account_percent} %   •   {mails:,} mails traités")
 
 
 def _format_eta_short(seconds):
@@ -226,14 +177,11 @@ def _start_status_blink(self, text, success):
     self.scan_live_subtitle.setText(text)
     self.scan_live_detail.setText("Les résultats sont disponibles dans les services détectés.")
     self._smooth_target = 100 if success else self._smooth_target
-
     self.status_timer = QTimer(self)
     visible = [True]
-
     def blink():
         visible[0] = not visible[0]
         self.scan_live_badge.setVisible(visible[0])
-
     self.status_timer.timeout.connect(blink)
     self.status_timer.start(420)
     QTimer.singleShot(2600, self._stop_status_blink)
