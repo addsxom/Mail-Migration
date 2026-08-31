@@ -40,7 +40,7 @@ Dans **Google Cloud Console** :
 
 1. Créez ou sélectionnez un projet.
 2. Activez **Gmail API**.
-3. Activez **Google People API** *(nécessaire pour récupérer les photos de profil et informations de contact disponibles)*.
+3. Activez **Google People API** 
 4. Configurez l'écran de consentement OAuth.
 5. Créez un identifiant OAuth **Desktop app**.
 6. Téléchargez le fichier d'identifiants sous `credentials.json` à la racine du projet.
