@@ -1,5 +1,5 @@
 import time
-from PySide6.QtCore import QTimer, QPropertyAnimation
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QProgressBar
 from app.ui.accounts import AccountsPage
 
@@ -7,22 +7,69 @@ _original_accounts_init = AccountsPage.__init__
 _original_start_scan = AccountsPage.start_scan
 
 
+CARD_STYLE = """
+QFrame#scanLiveCard {
+    background: #171B22;
+    border: 1px solid #303846;
+    border-radius: 16px;
+}
+QLabel#scanLiveTitle {
+    color: #F2F4F7;
+    font-size: 19px;
+    font-weight: 700;
+}
+QLabel#scanLiveSubtitle {
+    color: #929BAA;
+    font-size: 13px;
+}
+QLabel#scanLiveBadge {
+    color: #8ED6A5;
+    background: #1A2A21;
+    border: 1px solid #2D5940;
+    border-radius: 10px;
+    padding: 7px 11px;
+    font-size: 11px;
+    font-weight: 700;
+}
+QLabel#scanStat {
+    color: #E6E9EF;
+    background: #12161C;
+    border: 1px solid #292F39;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-weight: 700;
+}
+QLabel#scanLiveDetail {
+    color: #8F98A8;
+    font-size: 12px;
+}
+QProgressBar#scanLiveProgress {
+    background: #0F1217;
+    border: none;
+    border-radius: 4px;
+}
+QProgressBar#scanLiveProgress::chunk {
+    background: #71819A;
+    border-radius: 4px;
+}
+"""
+
+
 def _build_scan_interface(self):
-    """Clean scan dashboard. It only changes presentation; the scanner stays untouched."""
     self.progress.hide()
     self.status.hide()
 
     panel = QFrame(self)
     panel.setObjectName("scanLiveCard")
+    panel.setStyleSheet(CARD_STYLE)
     root = QVBoxLayout(panel)
     root.setContentsMargins(20, 18, 20, 18)
     root.setSpacing(12)
 
     top = QHBoxLayout()
-    top.setSpacing(10)
     title_box = QVBoxLayout()
     title_box.setSpacing(2)
-
     self.scan_live_title = QLabel("Prêt à analyser")
     self.scan_live_title.setObjectName("scanLiveTitle")
     self.scan_live_subtitle = QLabel("Sélectionnez un ou plusieurs comptes pour commencer")
@@ -60,7 +107,6 @@ def _build_scan_interface(self):
     self.scan_live_detail.setObjectName("scanLiveDetail")
     root.addWidget(self.scan_live_detail)
 
-    # Insert the card immediately before the account list.
     parent_layout = self.list.parentWidget().layout()
     list_index = parent_layout.indexOf(self.list)
     parent_layout.insertWidget(list_index, panel)
@@ -78,7 +124,6 @@ def _accounts_init(self, on_change=None):
     self._scan_email_cache = {}
     self._scan_position_cache = {}
     self._scan_last_status = 0.0
-    self._scan_last_mail_display = {}
     _build_scan_interface(self)
 
 
@@ -123,6 +168,8 @@ def _scan_account_started(self, account_id, position, total_accounts):
     self.scan_live_badge.setText("● ANALYSE EN COURS")
     self.scan_live_detail.setText("Connexion à Gmail et préparation des messages…")
     self.scan_account_stat.setText(f"{position} / {total_accounts}\nCOMPTE ACTUEL")
+    self.scan_mail_stat.setText("0\nMAILS TRAITÉS")
+    self.scan_service_stat.setText("0\nSERVICES DÉTECTÉS")
     self.scan_eta_stat.setText("Calcul…\nTEMPS RESTANT")
 
 
@@ -146,7 +193,6 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
 
     email = self._scan_email_cache.get(account_id, "Compte Google")
     position = self._scan_position_cache.get(account_id, self.scan_completed + 1)
-    eta_text = self._format_eta_short(eta)
     account_percent = int(round(current_progress)) if total else 0
 
     self.scan_live_title.setText(f"Analyse du compte {position} / {self.scan_total_accounts}")
@@ -155,11 +201,11 @@ def _scan_progress(self, account_id, mails, total, services, completed_accounts)
     self.scan_account_stat.setText(f"{position} / {self.scan_total_accounts}\nCOMPTE ACTUEL")
     self.scan_mail_stat.setText(f"{mails:,}\nMAILS TRAITÉS")
     self.scan_service_stat.setText(f"{services}\nSERVICES DÉTECTÉS")
-    self.scan_eta_stat.setText(f"{eta_text}\nTEMPS RESTANT")
+    self.scan_eta_stat.setText(f"{_format_eta_short(eta)}\nTEMPS RESTANT")
     self.scan_live_detail.setText(f"Progression du compte : {account_percent} %   •   {mails:,} / {total:,} mails")
 
 
-def _format_eta_short(self, seconds):
+def _format_eta_short(seconds):
     if seconds is None or seconds < 0:
         return "Calcul…"
     seconds = max(0, int(round(seconds)))
@@ -179,7 +225,7 @@ def _start_status_blink(self, text, success):
     self.scan_live_badge.setText("● TERMINÉ" if success else "● ANNULÉ")
     self.scan_live_subtitle.setText(text)
     self.scan_live_detail.setText("Les résultats sont disponibles dans les services détectés.")
-    self.scan_live_progress.setValue(100 if success else self._smooth_target)
+    self._smooth_target = 100 if success else self._smooth_target
 
     self.status_timer = QTimer(self)
     visible = [True]
